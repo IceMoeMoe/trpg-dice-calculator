@@ -1023,6 +1023,44 @@ class DiceCalculator {
       }
     }
     
+    // 收集嵌套条件信息
+    const nestedConditions = [];
+    
+    // 收集当前条件信息
+    const currentCondition = {
+      condition: this.nodeToString(conditionNode),
+      successProbability: conditionResult.successProbability,
+      failureProbability: conditionResult.failureProbability,
+      level: 0
+    };
+    nestedConditions.push(currentCondition);
+    
+    // 递归收集真值分支中的条件
+    if (trueValueResult.nestedConditions) {
+      trueValueResult.nestedConditions.forEach(cond => {
+        nestedConditions.push({
+          ...cond,
+          level: cond.level + 1,
+          parentProbability: conditionResult.successProbability,
+          conditionalProbability: cond.successProbability * conditionResult.successProbability,
+          path: 'true'
+        });
+      });
+    }
+    
+    // 递归收集假值分支中的条件
+    if (falseValueResult.nestedConditions) {
+      falseValueResult.nestedConditions.forEach(cond => {
+        nestedConditions.push({
+          ...cond,
+          level: cond.level + 1,
+          parentProbability: conditionResult.failureProbability,
+          conditionalProbability: cond.successProbability * conditionResult.failureProbability,
+          path: 'false'
+        });
+      });
+    }
+    
     // 返回包含分离数据的结果
     return {
       type: 'conditional',
@@ -1032,7 +1070,8 @@ class DiceCalculator {
       condition: {
         successProbability: conditionResult.successProbability,
         failureProbability: conditionResult.failureProbability
-      }
+      },
+      nestedConditions: nestedConditions
     };
   }
 
@@ -1042,6 +1081,28 @@ class DiceCalculator {
       return this.containsD20(conditionNode.left) || this.containsD20(conditionNode.right);
     }
     return false;
+  }
+
+  // 将AST节点转换为字符串表示
+  nodeToString(node) {
+    if (!node) return '';
+    
+    switch (node.type) {
+      case 'number':
+        return node.value.toString();
+      case 'dice':
+        return `${node.count || ''}d${node.sides}`;
+      case 'binary_op':
+        return `${this.nodeToString(node.left)} ${node.operator} ${this.nodeToString(node.right)}`;
+      case 'comparison':
+        return `${this.nodeToString(node.left)} ${node.operator} ${this.nodeToString(node.right)}`;
+      case 'conditional':
+        return `${this.nodeToString(node.condition)} ? ${this.nodeToString(node.trueValue)} : ${this.nodeToString(node.falseValue)}`;
+      case 'group':
+        return `(${this.nodeToString(node.expression)})`;
+      default:
+        return node.value ? node.value.toString() : '';
+    }
   }
 
   // 递归检查表达式中是否包含d20
@@ -1172,6 +1233,60 @@ class DiceCalculator {
       }
     }
     
+    // 收集嵌套条件信息（针对条件暴击）
+    const nestedConditions = [];
+    
+    // 主条件信息
+    const currentCondition = {
+      condition: this.nodeToString(conditionNode),
+      successProbability: normalHitProbability + criticalHitProbability,
+      failureProbability: missProbability,
+      level: 0,
+      isCriticalCondition: true,
+      normalHitProbability: normalHitProbability,
+      criticalHitProbability: criticalHitProbability
+    };
+    nestedConditions.push(currentCondition);
+    
+    // 收集真值分支中的条件（普通命中）
+    if (normalHitResult.nestedConditions) {
+      normalHitResult.nestedConditions.forEach(cond => {
+        nestedConditions.push({
+          ...cond,
+          level: cond.level + 1,
+          parentProbability: normalHitProbability,
+          conditionalProbability: cond.successProbability * normalHitProbability,
+          path: 'normal_hit'
+        });
+      });
+    }
+    
+    // 收集真值分支中的条件（暴击命中）
+    if (criticalHitResult.nestedConditions) {
+      criticalHitResult.nestedConditions.forEach(cond => {
+        nestedConditions.push({
+          ...cond,
+          level: cond.level + 1,
+          parentProbability: criticalHitProbability,
+          conditionalProbability: cond.successProbability * criticalHitProbability,
+          path: 'critical_hit'
+        });
+      });
+    }
+    
+    // 收集假值分支中的条件（失败）
+    if (missResult.nestedConditions) {
+      missResult.nestedConditions.forEach(cond => {
+        nestedConditions.push({
+          ...cond,
+          level: cond.level + 1,
+          parentProbability: missProbability,
+          conditionalProbability: cond.successProbability * missProbability,
+          path: 'miss'
+        });
+      });
+    }
+    
     return {
       type: 'conditional_critical',
       combined: normalizedResult,
@@ -1182,7 +1297,8 @@ class DiceCalculator {
         normalHit: normalHitProbability,
         criticalHit: criticalHitProbability,
         miss: missProbability
-      }
+      },
+      nestedConditions: nestedConditions
     };
   }
 
@@ -1733,7 +1849,8 @@ class DiceCalculator {
             isConditional: true,
             trueValues: result.trueValues,
             falseValues: result.falseValues,
-            condition: result.condition
+            condition: result.condition,
+            nestedConditions: result.nestedConditions || []
           };
         } else if (result.type === 'conditional_critical') {
           const totalOutcomes = Object.values(result.combined).reduce((sum, count) => sum + count, 0);
@@ -1747,7 +1864,8 @@ class DiceCalculator {
             normalHitValues: result.normalHitValues,
             criticalHitValues: result.criticalHitValues,
             missValues: result.missValues,
-            probabilities: result.probabilities
+            probabilities: result.probabilities,
+            nestedConditions: result.nestedConditions || []
           };
         } else {
           const distribution = result.distribution || result;
