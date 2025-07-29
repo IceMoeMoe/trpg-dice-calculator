@@ -47,6 +47,30 @@ const ResultDisplay = ({ result, formula }) => {
     .map(([value, count]) => ({ value: parseInt(value), count }))
     .sort((a, b) => a.value - b.value); // 按值排序
 
+  // 找到第二高概率的结果
+  const sortedCounts = [...new Set(Object.values(distribution))].sort((a, b) => b - a);
+  const secondMaxCount = sortedCounts.length > 1 ? sortedCounts[1] : 0;
+  
+  let secondMostLikelyValues = [];
+  let shouldShowSecondMostLikely = false;
+  
+  if (secondMaxCount > 0) {
+    // 计算最高概率和第二高概率
+    const maxProbability = (maxCount / totalOutcomes) * 100;
+    const secondMaxProbability = (secondMaxCount / totalOutcomes) * 100;
+    
+    // 如果最高概率显著高于第二高概率（增长超过100%），则显示第二高概率结果
+    const probabilityIncrease = ((maxProbability - secondMaxProbability) / secondMaxProbability) * 100;
+    shouldShowSecondMostLikely = probabilityIncrease >= 100;
+    
+    if (shouldShowSecondMostLikely) {
+      secondMostLikelyValues = Object.entries(distribution)
+        .filter(([value, count]) => count === secondMaxCount)
+        .map(([value, count]) => ({ value: parseInt(value), count }))
+        .sort((a, b) => a.value - b.value);
+    }
+  }
+
   return (
     <div className="space-y-4">
       {/* 统计信息卡片 */}
@@ -67,7 +91,7 @@ const ResultDisplay = ({ result, formula }) => {
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
               <Target className="w-4 h-4 text-green-600" />
-              <div>
+              <div className="w-full">
                 <p className="text-sm text-gray-600">最可能结果</p>
                 <div className="text-lg font-semibold">
                   {mostLikelyValues.length === 1 ? (
@@ -80,6 +104,24 @@ const ResultDisplay = ({ result, formula }) => {
                   {((maxCount / totalOutcomes) * 100).toFixed(1)}%
                   {mostLikelyValues.length > 1 && ` (共${mostLikelyValues.length}个)`}
                 </p>
+                
+                {/* 如果最可能结果的概率显著高于第二可能结果，显示第二可能结果 */}
+                {shouldShowSecondMostLikely && secondMostLikelyValues.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-gray-200">
+                    <p className="text-sm text-gray-600">第二可能结果</p>
+                    <div className="text-base font-medium text-gray-700">
+                      {secondMostLikelyValues.length === 1 ? (
+                        <span>{secondMostLikelyValues[0].value}</span>
+                      ) : (
+                        <span>{secondMostLikelyValues.map(v => v.value).join(', ')}</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      {((secondMostLikelyValues[0].count / totalOutcomes) * 100).toFixed(1)}%
+                      {secondMostLikelyValues.length > 1 && ` (共${secondMostLikelyValues.length}个)`}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </CardContent>
