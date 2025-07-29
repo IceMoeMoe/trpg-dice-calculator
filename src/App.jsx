@@ -94,6 +94,10 @@ function App() {
                   <span className="font-medium text-gray-700">复杂表达式</span>
                   <code className="text-blue-600 font-mono">2*(2d6)+kh(2d12)+4</code>
                 </div>
+                <div className="flex justify-between items-center p-2 bg-gray-50 rounded text-sm">
+                  <span className="font-medium text-gray-700">火球术豁免计算</span>
+                  <code className="text-blue-600 font-mono">((d20+7&gt;15)*(8d6)/2)+(15&gt;d20+7)*(8d6)</code>
+                </div>
               </div>
             </CardContent>
           </Card>

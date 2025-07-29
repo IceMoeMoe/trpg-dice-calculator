@@ -35,14 +35,32 @@ class Lexer {
         this.tokens.push({ type: 'DIVIDE', value: '/' });
         this.position++;
       } else if (char === '>') {
-        this.tokens.push({ type: 'GT', value: '>' });
-        this.position++;
+        // 检查是否是 '>='
+        if (this.position + 1 < this.input.length && this.input[this.position + 1] === '=') {
+          this.tokens.push({ type: 'GTE', value: '>=' });
+          this.position += 2;
+        } else {
+          this.tokens.push({ type: 'GT', value: '>' });
+          this.position++;
+        }
       } else if (char === '<') {
-        this.tokens.push({ type: 'LT', value: '<' });
-        this.position++;
+        // 检查是否是 '<='
+        if (this.position + 1 < this.input.length && this.input[this.position + 1] === '=') {
+          this.tokens.push({ type: 'LTE', value: '<=' });
+          this.position += 2;
+        } else {
+          this.tokens.push({ type: 'LT', value: '<' });
+          this.position++;
+        }
       } else if (char === '=') {
-        this.tokens.push({ type: 'EQ', value: '=' });
-        this.position++;
+        // 检查是否是 '=='
+        if (this.position + 1 < this.input.length && this.input[this.position + 1] === '=') {
+          this.tokens.push({ type: 'EQ', value: '==' });
+          this.position += 2;
+        } else {
+          this.tokens.push({ type: 'EQ', value: '=' });
+          this.position++;
+        }
       } else {
         throw new Error(`未知字符: ${char}`);
       }
@@ -155,7 +173,11 @@ class Parser {
   }
 
   parse() {
-    return this.parseComparison();
+    const result = this.parseComparison();
+    if (this.currentToken().type !== 'EOF') {
+      throw new Error(`意外的token: ${this.currentToken().type}`);
+    }
+    return result;
   }
 
   parseComparison() {
@@ -163,7 +185,9 @@ class Parser {
     
     while (this.currentToken().type === 'GT' || 
            this.currentToken().type === 'LT' || 
-           this.currentToken().type === 'EQ') {
+           this.currentToken().type === 'EQ' ||
+           this.currentToken().type === 'GTE' ||
+           this.currentToken().type === 'LTE') {
       const operator = this.currentToken().value;
       this.advance();
       const right = this.parseExpression();
@@ -298,7 +322,7 @@ class Parser {
     
     if (token.type === 'LPAREN') {
       this.advance(); // 跳过 '('
-      const expression = this.parseExpression();
+      const expression = this.parseComparison(); // 改为parseComparison以支持比较操作
       
       if (this.currentToken().type !== 'RPAREN') {
         throw new Error('缺少右括号');
@@ -401,37 +425,88 @@ class DiceCalculator {
     let successCount = 0;
     let totalCount = 0;
     
-    for (const [leftValue, leftCount] of Object.entries(leftResult)) {
-      for (const [rightValue, rightCount] of Object.entries(rightResult)) {
+    // 如果右边是单个数值（不是分布），简化计算
+    if (Object.keys(rightResult).length === 1 && Object.keys(rightResult)[0] !== undefined) {
+      const rightValue = parseInt(Object.keys(rightResult)[0]);
+      
+      for (const [leftValue, leftCount] of Object.entries(leftResult)) {
         const leftVal = parseInt(leftValue);
-        const rightVal = parseInt(rightValue);
-        const combinationCount = leftCount * rightCount;
-        
-        totalCount += combinationCount;
+        totalCount += leftCount;
         
         let success = false;
         switch (operator) {
           case '>':
-            success = leftVal > rightVal;
+            success = leftVal > rightValue;
             break;
           case '<':
-            success = leftVal < rightVal;
+            success = leftVal < rightValue;
             break;
           case '=':
-            success = leftVal === rightVal;
+            success = leftVal === rightValue;
+            break;
+          case '>=':
+            success = leftVal >= rightValue;
+            break;
+          case '<=':
+            success = leftVal <= rightValue;
             break;
         }
         
         if (success) {
-          successCount += combinationCount;
+          successCount += leftCount;
+        }
+      }
+    } else {
+      // 完整的分布比较
+      for (const [leftValue, leftCount] of Object.entries(leftResult)) {
+        for (const [rightValue, rightCount] of Object.entries(rightResult)) {
+          const leftVal = parseInt(leftValue);
+          const rightVal = parseInt(rightValue);
+          const combinationCount = leftCount * rightCount;
+          
+          totalCount += combinationCount;
+          
+          let success = false;
+          switch (operator) {
+            case '>':
+              success = leftVal > rightVal;
+              break;
+            case '<':
+              success = leftVal < rightVal;
+              break;
+            case '=':
+              success = leftVal === rightVal;
+              break;
+            case '>=':
+              success = leftVal >= rightVal;
+              break;
+            case '<=':
+              success = leftVal <= rightVal;
+              break;
+          }
+          
+          if (success) {
+            successCount += combinationCount;
+          }
         }
       }
     }
     
-    // 返回成功/失败的分布 (1表示成功，0表示失败)
+    // 返回成功概率和失败概率的分布
+    const successProbability = totalCount > 0 ? successCount / totalCount : 0;
+    const failureProbability = totalCount > 0 ? (totalCount - successCount) / totalCount : 1;
+    
     return {
-      1: successCount,
-      0: totalCount - successCount
+      type: 'probability',
+      successProbability,
+      failureProbability,
+      successCount,
+      totalCount,
+      // 也保留原有的1/0分布用于兼容性
+      distribution: {
+        1: successCount,
+        0: totalCount - successCount
+      }
     };
   }
 
@@ -439,12 +514,80 @@ class DiceCalculator {
   calculateBinaryOp(left, right, operator) {
     const leftResult = this.evaluate(left);
     const rightResult = this.evaluate(right);
+    
+    // 检查是否有概率类型的结果
+    const leftIsProbability = leftResult.type === 'probability';
+    const rightIsProbability = rightResult.type === 'probability';
+    
+    if (leftIsProbability && !rightIsProbability) {
+      // 左边是概率，右边是数值分布
+      return this.calculateProbabilityOperation(leftResult, rightResult, operator, 'left');
+    } else if (!leftIsProbability && rightIsProbability) {
+      // 左边是数值分布，右边是概率
+      return this.calculateProbabilityOperation(rightResult, leftResult, operator, 'right');
+    } else if (leftIsProbability && rightIsProbability) {
+      // 两边都是概率 - 概率相乘
+      if (operator === '*') {
+        const newSuccessProbability = leftResult.successProbability * rightResult.successProbability;
+        const totalOutcomes = leftResult.totalCount * rightResult.totalCount;
+        const successOutcomes = Math.round(newSuccessProbability * totalOutcomes);
+        
+        return {
+          type: 'probability',
+          successProbability: newSuccessProbability,
+          failureProbability: 1 - newSuccessProbability,
+          successCount: successOutcomes,
+          totalCount: totalOutcomes,
+          distribution: {
+            1: successOutcomes,
+            0: totalOutcomes - successOutcomes
+          }
+        };
+      }
+      // 对于其他操作，转换为普通分布计算
+      return this.calculateNormalBinaryOp(leftResult.distribution, rightResult.distribution, operator);
+    } else {
+      // 都是普通数值分布
+      const leftDist = leftResult.distribution || leftResult;
+      const rightDist = rightResult.distribution || rightResult;
+      return this.calculateNormalBinaryOp(leftDist, rightDist, operator);
+    }
+  }
+
+  // 计算概率与数值的运算
+  calculateProbabilityOperation(probabilityResult, valueResult, operator, probabilityPosition) {
+    if (operator !== '*') {
+      // 对于非乘法操作，转换为普通分布计算
+      return this.calculateNormalBinaryOp(probabilityResult.distribution, valueResult, operator);
+    }
+    
+    // 概率乘法：结果是期望值的分布
+    const valueDist = valueResult.distribution || valueResult;
+    const result = {};
+    
+    // 计算期望值分布
+    for (const [value, count] of Object.entries(valueDist)) {
+      const val = parseInt(value);
+      const expectedValue = val * probabilityResult.successProbability;
+      const scaledCount = count;
+      
+      // 将期望值四舍五入到最近的整数或保留小数
+      const roundedExpectedValue = Math.round(expectedValue * 100) / 100;
+      
+      result[roundedExpectedValue] = (result[roundedExpectedValue] || 0) + scaledCount;
+    }
+    
+    return result;
+  }
+
+  // 普通的二元运算计算
+  calculateNormalBinaryOp(leftResult, rightResult, operator) {
     const result = {};
     
     for (const [leftValue, leftCount] of Object.entries(leftResult)) {
       for (const [rightValue, rightCount] of Object.entries(rightResult)) {
-        const leftVal = parseInt(leftValue);
-        const rightVal = parseInt(rightValue);
+        const leftVal = parseFloat(leftValue);
+        const rightVal = parseFloat(rightValue);
         const combinationCount = leftCount * rightCount;
         
         let newValue;
@@ -459,12 +602,14 @@ class DiceCalculator {
             newValue = leftVal * rightVal;
             break;
           case '/':
-            newValue = Math.floor(leftVal / rightVal); // 整数除法
+            newValue = rightVal !== 0 ? leftVal / rightVal : 0;
             break;
           default:
             throw new Error(`未知运算符: ${operator}`);
         }
         
+        // 四舍五入到合理精度
+        newValue = Math.round(newValue * 100) / 100;
         result[newValue] = (result[newValue] || 0) + combinationCount;
       }
     }
@@ -495,13 +640,19 @@ class DiceCalculator {
     }
   }
 
-  // 计算平均值
-  calculateAverage(distribution) {
+  // 计算平均值（支持概率类型）
+  calculateAverage(result) {
+    if (result.type === 'probability') {
+      // 对于概率类型，返回成功概率
+      return result.successProbability;
+    }
+    
+    const distribution = result.distribution || result;
     let totalSum = 0;
     let totalCount = 0;
     
     for (const [value, count] of Object.entries(distribution)) {
-      totalSum += parseInt(value) * count;
+      totalSum += parseFloat(value) * count;
       totalCount += count;
     }
     
@@ -517,16 +668,33 @@ class DiceCalculator {
       const parser = new Parser(tokens);
       const ast = parser.parse();
       
-      const distribution = this.evaluate(ast);
-      const average = this.calculateAverage(distribution);
-      const totalOutcomes = Object.values(distribution).reduce((sum, count) => sum + count, 0);
+      const result = this.evaluate(ast);
+      const average = this.calculateAverage(result);
       
-      return {
-        distribution,
-        average,
-        totalOutcomes,
-        success: true
-      };
+      // 处理不同类型的结果
+      if (result.type === 'probability') {
+        return {
+          distribution: result.distribution,
+          average,
+          totalOutcomes: result.totalCount,
+          success: true,
+          isProbability: true,
+          successProbability: result.successProbability,
+          successCount: result.successCount,
+          probabilityPercentage: (result.successProbability * 100).toFixed(2) + '%'
+        };
+      } else {
+        const distribution = result.distribution || result;
+        const totalOutcomes = Object.values(distribution).reduce((sum, count) => sum + count, 0);
+        
+        return {
+          distribution,
+          average,
+          totalOutcomes,
+          success: true,
+          isProbability: false
+        };
+      }
     } catch (error) {
       return {
         distribution: {},
