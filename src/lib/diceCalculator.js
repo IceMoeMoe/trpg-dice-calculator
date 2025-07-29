@@ -797,13 +797,10 @@ class DiceCalculator {
       throw new Error('条件表达式的条件部分必须是比较操作（如 d20+6 >= 17）');
     }
     
-    // 简化处理：暂时不使用复杂的暴击重合逻辑，使用标准条件表达式处理
-    // 注释掉原有的暴击重合检查
-    /*
+    // 如果启用了暴击系统且条件中包含d20，使用特殊处理
     if (this.criticalOptions && this.criticalOptions.criticalEnabled && this.hasD20InCondition(conditionNode)) {
       return this.calculateConditionalWithCriticalOverlap(conditionNode, trueValueNode, falseValueNode, conditionResult);
     }
-    */
     
     const trueValueResult = this.evaluate(trueValueNode);
     const falseValueResult = this.evaluate(falseValueNode);
@@ -882,8 +879,7 @@ class DiceCalculator {
   calculateConditionalWithCriticalOverlap(conditionNode, trueValueNode, falseValueNode, baseConditionResult) {
     const criticalRate = this.criticalOptions.criticalRate;
     
-    // 对于d20，暴击通常发生在最高的几个值
-    // 假设暴击发生在20面骰的最高值
+    // 对于d20系统，暴击通常发生在20（5%）
     const criticalThreshold = 21 - Math.ceil(criticalRate / 5); // 5%对应20，10%对应19-20，依此类推
     
     // 分别计算普通命中、暴击命中、失败的概率和结果
@@ -891,10 +887,9 @@ class DiceCalculator {
     let criticalHitProbability = 0;
     let missProbability = 0;
     
-    // 简化处理：假设条件是基于d20的简单比较
-    // 这里需要更复杂的逻辑来准确计算重合部分
-    if (conditionNode.type === 'comparison' && conditionNode.left.type === 'dice' && conditionNode.left.sides === 20) {
-      const threshold = conditionNode.right.value || 0;
+    // 检查条件是否涉及简单的d20比较
+    if (this.isSimpleD20Condition(conditionNode)) {
+      const threshold = this.extractThresholdFromCondition(conditionNode);
       const operator = conditionNode.operator;
       
       // 计算各种情况的概率
@@ -916,6 +911,7 @@ class DiceCalculator {
             hits = roll <= threshold;
             break;
           case '=':
+          case '==':
             hits = roll === threshold;
             break;
         }
@@ -929,7 +925,8 @@ class DiceCalculator {
         }
       }
     } else {
-      // 回退到基础处理
+      // 对于复杂条件，使用近似计算
+      // 假设暴击概率均匀分布在成功概率中
       normalHitProbability = baseConditionResult.successProbability * (1 - criticalRate / 100);
       criticalHitProbability = baseConditionResult.successProbability * (criticalRate / 100);
       missProbability = baseConditionResult.failureProbability;
@@ -947,19 +944,19 @@ class DiceCalculator {
     const result = {};
     
     // 计算各分布的总计数
-    const normalHitDist = normalHitResult.distribution || normalHitResult;
+    const normalHitDist = normalHitResult.combined || normalHitResult.distribution || normalHitResult;
     const normalHitTotal = Object.values(normalHitDist).reduce((sum, count) => sum + count, 0);
     
-    const criticalHitDist = criticalHitResult.distribution || criticalHitResult;
+    const criticalHitDist = criticalHitResult.combined || criticalHitResult.distribution || criticalHitResult;
     const criticalHitTotal = Object.values(criticalHitDist).reduce((sum, count) => sum + count, 0);
     
-    const missDist = missResult.distribution || missResult;
+    const missDist = missResult.combined || missResult.distribution || missResult;
     const missTotal = Object.values(missDist).reduce((sum, count) => sum + count, 0);
     
     // 普通命中的贡献
     for (const [value, count] of Object.entries(normalHitDist)) {
       const val = parseFloat(value);
-      const relativeProbability = count / normalHitTotal;
+      const relativeProbability = normalHitTotal > 0 ? count / normalHitTotal : 0;
       const weightedCount = relativeProbability * normalHitProbability;
       result[val] = (result[val] || 0) + weightedCount;
     }
@@ -967,7 +964,7 @@ class DiceCalculator {
     // 暴击命中的贡献
     for (const [value, count] of Object.entries(criticalHitDist)) {
       const val = parseFloat(value);
-      const relativeProbability = count / criticalHitTotal;
+      const relativeProbability = criticalHitTotal > 0 ? count / criticalHitTotal : 0;
       const weightedCount = relativeProbability * criticalHitProbability;
       result[val] = (result[val] || 0) + weightedCount;
     }
@@ -975,7 +972,7 @@ class DiceCalculator {
     // 失败的贡献
     for (const [value, count] of Object.entries(missDist)) {
       const val = parseFloat(value);
-      const relativeProbability = count / missTotal;
+      const relativeProbability = missTotal > 0 ? count / missTotal : 0;
       const weightedCount = relativeProbability * missProbability;
       result[val] = (result[val] || 0) + weightedCount;
     }
@@ -1004,6 +1001,29 @@ class DiceCalculator {
         miss: missProbability
       }
     };
+  }
+
+  // 检查是否是简单的d20条件（d20 > threshold 形式）
+  isSimpleD20Condition(conditionNode) {
+    if (conditionNode.type !== 'comparison') return false;
+    
+    const left = conditionNode.left;
+    const right = conditionNode.right;
+    
+    // 检查左边是否是单独的d20
+    if (left.type === 'dice' && left.sides === 20 && left.count === 1) {
+      return right.type === 'number';
+    }
+    
+    return false;
+  }
+
+  // 从条件中提取阈值
+  extractThresholdFromCondition(conditionNode) {
+    if (conditionNode.right && conditionNode.right.type === 'number') {
+      return conditionNode.right.value;
+    }
+    return 0;
   }
   calculateComparison(left, right, operator) {
     const leftResult = this.evaluate(left);
@@ -1298,8 +1318,44 @@ class DiceCalculator {
     const criticalResult = this.evaluate(ast);
     
     // 处理不同类型的结果
-    if (normalResult.type === 'conditional' || criticalResult.type === 'conditional') {
+    if (normalResult.type === 'conditional' || criticalResult.type === 'conditional' ||
+        normalResult.type === 'conditional_critical' || criticalResult.type === 'conditional_critical') {
       // 如果是条件表达式，返回特殊处理
+      // 但是如果已经是 conditional_critical 类型，需要格式化返回
+      if (normalResult.type === 'conditional_critical') {
+        const result = normalResult;
+        const average = this.calculateAverage(result);
+        const totalOutcomes = Object.values(result.combined).reduce((sum, count) => sum + count, 0);
+        
+        return {
+          distribution: result.combined,
+          average,
+          totalOutcomes,
+          success: true,
+          isConditionalCritical: true,
+          normalHitValues: result.normalHitValues,
+          criticalHitValues: result.criticalHitValues,
+          missValues: result.missValues,
+          probabilities: result.probabilities
+        };
+      }
+      if (criticalResult.type === 'conditional_critical') {
+        const result = criticalResult;
+        const average = this.calculateAverage(result);
+        const totalOutcomes = Object.values(result.combined).reduce((sum, count) => sum + count, 0);
+        
+        return {
+          distribution: result.combined,
+          average,
+          totalOutcomes,
+          success: true,
+          isConditionalCritical: true,
+          normalHitValues: result.normalHitValues,
+          criticalHitValues: result.criticalHitValues,
+          missValues: result.missValues,
+          probabilities: result.probabilities
+        };
+      }
       return this.handleConditionalCritical(normalResult, criticalResult, normalProbability, criticalProbability);
     }
     
