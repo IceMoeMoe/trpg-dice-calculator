@@ -153,12 +153,12 @@ class Lexer {
       return;
     }
     
-    // 检查是否是keep操作 (如 "kh", "kl", "k3h", "k3l")
+    // 检查是否是keep操作 (如 "kh", "kl", "kh3", "kl3")
     if (identifier.startsWith('k')) {
-      const match = identifier.match(/^k(\d*)([hl])$/);
+      const match = identifier.match(/^k([hl])(\d*)$/);
       if (match) {
-        const count = match[1] ? parseInt(match[1]) : 1;
-        const type = match[2] === 'h' ? 'highest' : 'lowest';
+        const type = match[1] === 'h' ? 'highest' : 'lowest';
+        const count = match[2] ? parseInt(match[2]) : 1;
         this.tokens.push({ 
           type: 'KEEP', 
           value: { count, type }
@@ -498,7 +498,17 @@ class DiceCalculator {
       }
     }
     
-    return normalizedResult;
+    // 返回包含分离数据的结果
+    return {
+      type: 'conditional',
+      combined: normalizedResult,
+      trueValues: trueDist,
+      falseValues: falseDist,
+      condition: {
+        successProbability: conditionResult.successProbability,
+        failureProbability: conditionResult.failureProbability
+      }
+    };
   }
   calculateComparison(left, right, operator) {
     const leftResult = this.evaluate(left);
@@ -732,6 +742,20 @@ class DiceCalculator {
       return result.successProbability;
     }
     
+    if (result.type === 'conditional') {
+      // 对于条件类型，计算合并分布的平均值
+      const distribution = result.combined;
+      let totalSum = 0;
+      let totalCount = 0;
+      
+      for (const [value, count] of Object.entries(distribution)) {
+        totalSum += parseFloat(value) * count;
+        totalCount += count;
+      }
+      
+      return totalCount > 0 ? totalSum / totalCount : 0;
+    }
+    
     const distribution = result.distribution || result;
     let totalSum = 0;
     let totalCount = 0;
@@ -767,6 +791,19 @@ class DiceCalculator {
           successProbability: result.successProbability,
           successCount: result.successCount,
           probabilityPercentage: (result.successProbability * 100).toFixed(2) + '%'
+        };
+      } else if (result.type === 'conditional') {
+        const totalOutcomes = Object.values(result.combined).reduce((sum, count) => sum + count, 0);
+        
+        return {
+          distribution: result.combined,
+          average,
+          totalOutcomes,
+          success: true,
+          isConditional: true,
+          trueValues: result.trueValues,
+          falseValues: result.falseValues,
+          condition: result.condition
         };
       } else {
         const distribution = result.distribution || result;

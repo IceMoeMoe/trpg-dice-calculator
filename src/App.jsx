@@ -133,7 +133,7 @@ function App() {
                   <span>取最低值，如 <code className="text-blue-600">kl(2d20)</code></span>
                 </div>
                 <div className="flex items-start gap-2">
-                  <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">kKh(NdM)</code>
+                  <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">khK(NdM)</code>
                   <span>取K个最高值，如 <code className="text-blue-600">k3h(4d6)</code></span>
                 </div>
                 <div className="flex items-start gap-2">

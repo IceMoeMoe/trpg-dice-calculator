@@ -110,10 +110,52 @@ const ResultDisplay = ({ result, formula }) => {
         <CardContent>
           <DiceChart 
             distribution={distribution} 
-            totalOutcomes={totalOutcomes} 
+            totalOutcomes={totalOutcomes}
+            isConditional={result.isConditional}
+            trueValues={result.trueValues}
+            falseValues={result.falseValues}
+            condition={result.condition}
           />
         </CardContent>
       </Card>
+
+      {/* 条件信息卡片 - 只在条件判断时显示 */}
+      {result.isConditional && (
+        <Card className="border-purple-200">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-purple-600">
+              <Target className="w-5 h-5" />
+              条件判断信息
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="text-center p-3 bg-blue-50 rounded-lg">
+                <p className="text-sm text-gray-600">条件为真概率</p>
+                <p className="text-2xl font-bold text-blue-600">
+                  {(result.condition.successProbability * 100).toFixed(2)}%
+                </p>
+              </div>
+              <div className="text-center p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-600">条件为假概率</p>
+                <p className="text-2xl font-bold text-gray-600">
+                  {(result.condition.failureProbability * 100).toFixed(2)}%
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 text-sm text-gray-600">
+              <p>
+                • <span className="inline-block w-3 h-3 bg-blue-500 rounded mr-2"></span>
+                深蓝色表示条件为真时的结果分布
+              </p>
+              <p>
+                • <span className="inline-block w-3 h-3 bg-blue-500 opacity-50 rounded mr-2"></span>
+                浅蓝色表示条件为假时的结果分布
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 详细概率表格 */}
       <Card>
