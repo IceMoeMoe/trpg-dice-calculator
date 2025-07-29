@@ -61,6 +61,12 @@ class Lexer {
           this.tokens.push({ type: 'EQ', value: '=' });
           this.position++;
         }
+      } else if (char === '?') {
+        this.tokens.push({ type: 'QUESTION', value: '?' });
+        this.position++;
+      } else if (char === ':') {
+        this.tokens.push({ type: 'COLON', value: ':' });
+        this.position++;
       } else {
         throw new Error(`未知字符: ${char}`);
       }
@@ -173,11 +179,42 @@ class Parser {
   }
 
   parse() {
-    const result = this.parseComparison();
+    const result = this.parseConditional();
     if (this.currentToken().type !== 'EOF') {
       throw new Error(`意外的token: ${this.currentToken().type}`);
     }
     return result;
+  }
+
+  parseConditional() {
+    let expression = this.parseComparison();
+    
+    // 检查是否是条件表达式 (condition ? valueIfTrue : valueIfFalse)
+    if (this.currentToken().type === 'QUESTION') {
+      this.advance(); // 跳过 '?'
+      const trueValue = this.parseComparison();
+      
+      if (this.currentToken().type !== 'COLON') {
+        throw new Error('条件表达式中缺少 ":"');
+      }
+      this.advance(); // 跳过 ':'
+      
+      const falseValue = this.parseComparison();
+      
+      // 验证条件是否为比较表达式
+      if (expression.type !== 'comparison') {
+        throw new Error('条件表达式的条件部分必须是比较操作（如 d20+6 >= 17）');
+      }
+      
+      return {
+        type: 'conditional',
+        condition: expression,
+        trueValue,
+        falseValue
+      };
+    }
+    
+    return expression;
   }
 
   parseComparison() {
@@ -322,7 +359,7 @@ class Parser {
     
     if (token.type === 'LPAREN') {
       this.advance(); // 跳过 '('
-      const expression = this.parseComparison(); // 改为parseComparison以支持比较操作
+      const expression = this.parseConditional(); // 改为parseConditional以支持条件操作
       
       if (this.currentToken().type !== 'RPAREN') {
         throw new Error('缺少右括号');
@@ -417,7 +454,52 @@ class DiceCalculator {
     return result;
   }
 
-  // 计算比较操作
+  // 计算条件表达式
+  calculateConditional(conditionNode, trueValueNode, falseValueNode) {
+    const conditionResult = this.evaluate(conditionNode);
+    
+    // 如果条件结果不是概率类型，抛出错误
+    if (conditionResult.type !== 'probability') {
+      throw new Error('条件表达式的条件部分必须是比较操作（如 d20+6 >= 17）');
+    }
+    
+    const trueValueResult = this.evaluate(trueValueNode);
+    const falseValueResult = this.evaluate(falseValueNode);
+    
+    const result = {};
+    
+    // 获取真值和假值的分布
+    const trueDist = trueValueResult.distribution || trueValueResult;
+    const falseDist = falseValueResult.distribution || falseValueResult;
+    
+    // 计算条件成功时的结果分布
+    for (const [value, count] of Object.entries(trueDist)) {
+      const val = parseFloat(value);
+      const weightedCount = count * conditionResult.successProbability;
+      result[val] = (result[val] || 0) + weightedCount;
+    }
+    
+    // 计算条件失败时的结果分布
+    for (const [value, count] of Object.entries(falseDist)) {
+      const val = parseFloat(value);
+      const weightedCount = count * conditionResult.failureProbability;
+      result[val] = (result[val] || 0) + weightedCount;
+    }
+    
+    // 标准化结果（将权重转换为整数计数）
+    const totalWeight = Object.values(result).reduce((sum, weight) => sum + weight, 0);
+    const normalizedResult = {};
+    const scaleFactor = 10000; // 用更大的缩放因子以保持精度
+    
+    for (const [value, weight] of Object.entries(result)) {
+      const normalizedCount = Math.round(weight * scaleFactor / totalWeight * scaleFactor);
+      if (normalizedCount > 0) {
+        normalizedResult[value] = normalizedCount;
+      }
+    }
+    
+    return normalizedResult;
+  }
   calculateComparison(left, right, operator) {
     const leftResult = this.evaluate(left);
     const rightResult = this.evaluate(right);
@@ -631,6 +713,9 @@ class DiceCalculator {
         
       case 'comparison':
         return this.calculateComparison(node.left, node.right, node.operator);
+        
+      case 'conditional':
+        return this.calculateConditional(node.condition, node.trueValue, node.falseValue);
         
       case 'binary_op':
         return this.calculateBinaryOp(node.left, node.right, node.operator);

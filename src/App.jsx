@@ -37,7 +37,7 @@ function App() {
               <Calculator className="w-8 h-8 text-indigo-600" />
             </CardTitle>
             <p className="text-gray-600 mt-2">
-              支持复杂掷骰公式的精确计算，包括取最高/最低值、比较判别、复合运算等
+              支持复杂掷骰公式的精确计算，包括取最高/最低值、比较判别、条件表达式、复合运算等
             </p>
           </CardHeader>
         </Card>
@@ -96,7 +96,15 @@ function App() {
                 </div>
                 <div className="flex justify-between items-center p-2 bg-gray-50 rounded text-sm">
                   <span className="font-medium text-gray-700">火球术豁免计算</span>
-                  <code className="text-blue-600 font-mono">((d20+7&gt;15)*(8d6)/2)+(15&gt;d20+7)*(8d6)</code>
+                  <code className="text-blue-600 font-mono">(d20+6&gt;=17) ? (8d6/2) : 8d6</code>
+                </div>
+                <div className="flex justify-between items-center p-2 bg-gray-50 rounded text-sm">
+                  <span className="font-medium text-gray-700">攻击命中计算</span>
+                  <code className="text-blue-600 font-mono">(d20+8&gt;=15) ? 2d6+3 : 0</code>
+                </div>
+                <div className="flex justify-between items-center p-2 bg-gray-50 rounded text-sm">
+                  <span className="font-medium text-gray-700">复杂嵌套条件</span>
+                  <code className="text-blue-600 font-mono">(d20&gt;=18) ? 0 : ((d20&gt;=12) ? (4d6/2) : 4d6)</code>
                 </div>
               </div>
             </CardContent>
@@ -130,7 +138,11 @@ function App() {
                 </div>
                 <div className="flex items-start gap-2">
                   <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">A &gt; B</code>
-                  <span>比较判别，支持 &gt;, &lt;, =</span>
+                  <span>比较判别，支持 &gt;, &lt;, &gt;=, &lt;=, =</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">条件 ? 真值 : 假值</code>
+                  <span>条件表达式，用于豁免计算</span>
                 </div>
                 <div className="flex items-start gap-2">
                   <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">+, -, *, /</code>
