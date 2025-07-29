@@ -11,8 +11,8 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  // GitHub Pages 部署配置
-  base: process.env.NODE_ENV === 'production' ? '/trpg-dice-calculator/' : '/',
+  // GitHub Pages 部署配置 - 使用根目录
+  base: '/',
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
