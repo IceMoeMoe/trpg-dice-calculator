@@ -80,7 +80,7 @@ function App() {
                 </div>
                 <div className="flex justify-between items-center p-2 bg-gray-50 rounded text-sm">
                   <span className="font-medium text-gray-700">取3个最高</span>
-                  <code className="text-blue-600 font-mono">k3h(4d6)</code>
+                  <code className="text-blue-600 font-mono">kh3(4d6)</code>
                 </div>
                 <div className="flex justify-between items-center p-2 bg-gray-50 rounded text-sm">
                   <span className="font-medium text-gray-700">比较判别</span>
@@ -134,7 +134,7 @@ function App() {
                 </div>
                 <div className="flex items-start gap-2">
                   <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">khK(NdM)</code>
-                  <span>取K个最高值，如 <code className="text-blue-600">k3h(4d6)</code></span>
+                  <span>取K个最高值，如 <code className="text-blue-600">kh3(4d6)</code></span>
                 </div>
                 <div className="flex items-start gap-2">
                   <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">A &gt; B</code>
