@@ -22,19 +22,19 @@ const FormulaInput = ({ onCalculate, isCalculating }) => {
   };
 
   const handleCriticalRateChange = (e) => {
-    const value = parseInt(e.target.value);
-    if (value >= 0 && value <= 100) {
+    const value = parseFloat(e.target.value);
+    if (!isNaN(value) && value >= 0 && value <= 100) {
       setCriticalRate(value);
     }
   };
 
-  // 验证暴击率是否合理
-  const validateCriticalRate = (formula, criticalRate) => {
-    if (!criticalEnabled || criticalRate === 0) return { valid: true };
+  // 为暴击率提供友好建议
+  const getCriticalRateSuggestion = (formula, criticalRate) => {
+    if (!criticalEnabled || criticalRate === 0) return { suggestion: null };
     
     // 检查公式中是否包含骰子
     const diceMatch = formula.match(/(\d*)d(\d+)/g);
-    if (!diceMatch) return { valid: true, warning: '公式中没有找到骰子' };
+    if (!diceMatch) return { suggestion: null };
     
     // 获取所有骰子面数
     const diceSides = diceMatch.map(dice => {
@@ -42,25 +42,31 @@ const FormulaInput = ({ onCalculate, isCalculating }) => {
       return parseInt(match[2]);
     });
     
-    // 检查最常见的骰子面数
-    const commonDice = diceSides.find(sides => [4, 6, 8, 10, 12, 20].includes(sides));
-    if (commonDice) {
-      const stepSize = 100 / commonDice; // 每个面对应的百分比
-      const remainder = criticalRate % stepSize;
-      
-      if (remainder !== 0) {
-        const suggestedRate = Math.round(criticalRate / stepSize) * stepSize;
-        return {
-          valid: false,
-          error: `${commonDice}面骰的暴击率应为${stepSize.toFixed(1)}%的倍数，建议使用${suggestedRate}%`
-        };
-      }
+    // 检查是否包含d20（最常见的暴击骰）
+    const hasD20 = diceSides.includes(20);
+    if (hasD20 && criticalRate === 5) {
+      return { suggestion: 'info', message: 'D20系统的标准暴击率，相当于出20时暴击' };
     }
     
-    return { valid: true };
+    // 检查是否为常见的TRPG暴击率
+    const commonRates = [5, 10, 15, 20, 25];
+    if (commonRates.includes(criticalRate)) {
+      return { suggestion: null }; // 常见暴击率，不需要建议
+    }
+    
+    // 对于d6等小面数骰子，如果设置了很高的暴击率，给出提示
+    const smallDice = diceSides.find(sides => sides <= 6);
+    if (smallDice && criticalRate > 30) {
+      return { 
+        suggestion: 'warning', 
+        message: `${criticalRate}%的暴击率对于d${smallDice}来说可能偏高，常见的设置为5%-25%` 
+      };
+    }
+    
+    return { suggestion: null };
   };
 
-  const criticalValidation = validateCriticalRate(formula, criticalRate);
+  const criticalSuggestion = getCriticalRateSuggestion(formula, criticalRate);
 
   return (
     <Card className="w-full bg-white/80 backdrop-blur-sm border-0 shadow-lg">
@@ -91,9 +97,10 @@ const FormulaInput = ({ onCalculate, isCalculating }) => {
                     type="number"
                     min="0"
                     max="100"
+                    step="0.01"
                     value={criticalRate}
                     onChange={handleCriticalRateChange}
-                    className="w-16 h-8 text-center"
+                    className="w-20 h-8 text-center"
                     disabled={isCalculating}
                   />
                   <span className="text-sm text-orange-700">%</span>
@@ -123,7 +130,7 @@ const FormulaInput = ({ onCalculate, isCalculating }) => {
             />
             <Button 
               type="submit" 
-              disabled={!formula.trim() || isCalculating || (criticalEnabled && !criticalValidation.valid)}
+              disabled={!formula.trim() || isCalculating}
               className="flex items-center gap-2 h-12 px-6"
               size="lg"
             >
@@ -144,19 +151,19 @@ const FormulaInput = ({ onCalculate, isCalculating }) => {
                 </div>
               </div>
               
-              {/* 暴击率验证提示 */}
-              {!criticalValidation.valid && (
-                <div className="p-3 bg-red-50 rounded-lg border border-red-200">
-                  <div className="text-xs text-red-800">
-                    <strong>暴击率设置问题：</strong> {criticalValidation.error}
+              {/* 暴击率建议提示 */}
+              {criticalSuggestion.suggestion === 'info' && (
+                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="text-xs text-blue-800">
+                    <strong>提示：</strong> {criticalSuggestion.message}
                   </div>
                 </div>
               )}
               
-              {criticalValidation.valid && criticalValidation.warning && (
+              {criticalSuggestion.suggestion === 'warning' && (
                 <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200">
                   <div className="text-xs text-yellow-800">
-                    <strong>提示：</strong> {criticalValidation.warning}
+                    <strong>建议：</strong> {criticalSuggestion.message}
                   </div>
                 </div>
               )}
