@@ -724,26 +724,38 @@ class DiceCalculator {
     function generateSingleDiceRerollOutcomes(diceSides, minReroll, maxReroll, maxRerollCount) {
       const outcomes = {};
       
-      // 递归函数计算重骰结果
-      function calculateWithRerolls(currentValue, rerollsUsed) {
+      // 递归函数计算重骰结果，携带概率权重
+      function calculateWithRerolls(currentValue, rerollsUsed, probability) {
         // 如果当前值不在重骰范围内，或者已经用完重骰次数，则接受这个值
         if (currentValue < minReroll || currentValue > maxReroll || rerollsUsed >= maxRerollCount) {
-          outcomes[currentValue] = (outcomes[currentValue] || 0) + 1;
+          outcomes[currentValue] = (outcomes[currentValue] || 0) + probability;
           return;
         }
         
         // 如果在重骰范围内且还有重骰次数，进行重骰
+        // 每个新结果的概率是 probability / diceSides
+        const newProbability = probability / diceSides;
         for (let newValue = 1; newValue <= diceSides; newValue++) {
-          calculateWithRerolls(newValue, rerollsUsed + 1);
+          calculateWithRerolls(newValue, rerollsUsed + 1, newProbability);
         }
       }
       
-      // 对每个初始值开始计算
+      // 对每个初始值开始计算，初始概率为 1/diceSides
       for (let initialValue = 1; initialValue <= diceSides; initialValue++) {
-        calculateWithRerolls(initialValue, 0);
+        calculateWithRerolls(initialValue, 0, 1);
       }
       
-      return outcomes;
+      // 将概率转换为整数计数（乘以一个大的倍数以保持精度）
+      const scaleFactor = Math.pow(diceSides, maxRerollCount + 2); // 确保有足够精度
+      const integerOutcomes = {};
+      for (const [value, probability] of Object.entries(outcomes)) {
+        const count = Math.round(probability * scaleFactor);
+        if (count > 0) {
+          integerOutcomes[value] = count;
+        }
+      }
+      
+      return integerOutcomes;
     }
     
     // 获取单个骰子的重骰结果分布
