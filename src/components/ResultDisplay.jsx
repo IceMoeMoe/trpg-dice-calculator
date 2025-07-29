@@ -40,12 +40,12 @@ const ResultDisplay = ({ result, formula }) => {
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values);
   
-  // 找到最可能的结果
-  const mostLikelyValue = Object.entries(distribution)
-    .reduce((max, [value, count]) => 
-      count > max.count ? { value: parseInt(value), count } : max, 
-      { value: 0, count: 0 }
-    );
+  // 找到最可能的结果（支持多个相同概率的结果）
+  const maxCount = Math.max(...Object.values(distribution));
+  const mostLikelyValues = Object.entries(distribution)
+    .filter(([value, count]) => count === maxCount)
+    .map(([value, count]) => ({ value: parseInt(value), count }))
+    .sort((a, b) => a.value - b.value); // 按值排序
 
   return (
     <div className="space-y-4">
@@ -69,9 +69,16 @@ const ResultDisplay = ({ result, formula }) => {
               <Target className="w-4 h-4 text-green-600" />
               <div>
                 <p className="text-sm text-gray-600">最可能结果</p>
-                <p className="text-lg font-semibold">{mostLikelyValue.value}</p>
+                <div className="text-lg font-semibold">
+                  {mostLikelyValues.length === 1 ? (
+                    <span>{mostLikelyValues[0].value}</span>
+                  ) : (
+                    <span>{mostLikelyValues.map(v => v.value).join(', ')}</span>
+                  )}
+                </div>
                 <p className="text-xs text-gray-500">
-                  {((mostLikelyValue.count / totalOutcomes) * 100).toFixed(1)}%
+                  {((maxCount / totalOutcomes) * 100).toFixed(1)}%
+                  {mostLikelyValues.length > 1 && ` (共${mostLikelyValues.length}个)`}
                 </p>
               </div>
             </div>

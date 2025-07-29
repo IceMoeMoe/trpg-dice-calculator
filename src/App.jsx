@@ -142,7 +142,7 @@ function App() {
                 </div>
                 <div className="flex items-start gap-2">
                   <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">kh(NdM)</code>
-                  <span>取最高值，如 <code className="text-blue-600">kh(2d20)</code></span>
+                  <span>取最高值，如 <code className="text-blue-600">kh(2d20),kh(1d8;1d10),kh(4d6r1~2e1)</code></span>
                 </div>
                 <div className="flex items-start gap-2">
                   <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">kl(NdM)</code>
@@ -162,7 +162,7 @@ function App() {
                 </div>
                 <div className="flex items-start gap-2">
                   <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">表达式rX~YeZ</code>
-                  <span>条件重骰表达式，用于在数值区间重骰，如d4r1~2e1，其中e后面的1为重骰限制次数</span>
+                  <span>条件重骰表达式，用于在数值区间重骰，如<code className="text-blue-600">d4r1~2e1</code>，其中e后面的1为重骰限制次数</span>
                 </div>
                 <div className="flex items-start gap-2">
                   <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">+, -, *, /</code>
@@ -179,6 +179,9 @@ function App() {
                 <div className="flex items-start gap-2">
                   <code className="bg-orange-100 px-2 py-1 rounded text-orange-800 font-mono whitespace-nowrap">[表达式]</code>
                   <span>仅暴击时生效，如 <code className="text-orange-600">[1d6+3]</code></span>
+                </div>
+                <div>
+                  <span>支持重骰，如 <code className="text-orange-600">kl(4d6r1~2e1)</code></span>
                 </div>
               </div>
             </CardContent>

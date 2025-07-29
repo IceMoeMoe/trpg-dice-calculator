@@ -36,6 +36,9 @@ class Lexer {
       } else if (char === ')') {
         this.tokens.push({ type: 'RPAREN', value: ')' });
         this.position++;
+      } else if (char === ';') {
+        this.tokens.push({ type: 'SEMICOLON', value: ';' });
+        this.position++;
       } else if (char === '+') {
         this.tokens.push({ type: 'PLUS', value: '+' });
         this.position++;
@@ -363,6 +366,18 @@ class Parser {
     return left;
   }
 
+  // 解析支持重骰的表达式（用于keep操作内部）
+  parseRerollExpression() {
+    let left = this.parseExpression();
+    
+    // 在表达式解析完成后，检查是否有重骰操作
+    if (this.currentToken().type === 'REROLL' || this.currentToken().type === 'R') {
+      return this.parseReroll(left);
+    }
+    
+    return left;
+  }
+
   parseExpression() {
     let left = this.parseTerm();
     
@@ -539,7 +554,15 @@ class Parser {
       }
       this.advance(); // 跳过 '('
       
-      const expression = this.parseExpression();
+      // 解析表达式列表，支持分号分隔
+      const expressions = [];
+      expressions.push(this.parseRerollExpression()); // 改为支持重骰的表达式解析
+      
+      // 检查是否有分号分隔的其他表达式
+      while (this.currentToken().type === 'SEMICOLON') {
+        this.advance(); // 跳过 ';'
+        expressions.push(this.parseRerollExpression()); // 改为支持重骰的表达式解析
+      }
       
       if (this.currentToken().type !== 'RPAREN') {
         throw new Error('缺少右括号');
@@ -550,7 +573,7 @@ class Parser {
         type: 'keep',
         count: keepToken.value.count,
         keepType: keepToken.value.type,
-        expression
+        expressions: expressions // 支持多个表达式
       };
     }
     
@@ -570,9 +593,23 @@ class Parser {
   }
   
   parseReroll(diceNode) {
-    // 确保只有掷骰节点才能进行重骰
-    if (diceNode.type !== 'dice') {
-      throw new Error('重骰操作只能应用于掷骰');
+    // 检查节点类型并找到可以重骰的骰子节点
+    const findDiceNode = (node) => {
+      if (node.type === 'dice') {
+        return node;
+      } else if (node.type === 'binary_op') {
+        // 如果是二元操作，检查左右子节点
+        const leftDice = findDiceNode(node.left);
+        if (leftDice) return leftDice;
+        const rightDice = findDiceNode(node.right);
+        if (rightDice) return rightDice;
+      }
+      return null;
+    };
+    
+    const actualDiceNode = findDiceNode(diceNode);
+    if (!actualDiceNode) {
+      throw new Error('重骰操作只能应用于包含掷骰的表达式');
     }
     
     const token = this.currentToken();
@@ -582,7 +619,7 @@ class Parser {
       this.advance();
       return {
         type: 'reroll',
-        dice: diceNode,
+        dice: actualDiceNode,
         minValue: token.value.minValue,
         maxValue: token.value.maxValue,
         maxRerolls: token.value.maxRerolls
@@ -623,7 +660,7 @@ class Parser {
       
       return {
         type: 'reroll',
-        dice: diceNode,
+        dice: actualDiceNode,
         minValue,
         maxValue,
         maxRerolls
@@ -671,15 +708,25 @@ class DiceCalculator {
     return calculateMultipleDice(count, sides);
   }
 
-  // 计算Keep操作 (取最高/最低)
-  calculateKeep(expression, keepCount, keepType) {
-    const baseResult = this.evaluate(expression);
-    
-    // 如果基础表达式不是掷骰，直接返回
-    if (expression.type !== 'dice') {
-      return baseResult;
+  // 计算Keep操作 (取最高/最低) - 支持多种表达式和复合掷骰
+  calculateKeep(expressions, keepCount, keepType) {
+    // 如果只有一个表达式，检查是否为传统格式
+    if (expressions.length === 1) {
+      const expr = expressions[0];
+      // 对于传统的单一骰子表达式（如4d6），按原逻辑处理
+      if (expr.type === 'dice') {
+        return this.calculateKeepSingleDice(expr, keepCount, keepType);
+      }
+      // 对于复合表达式（如带重骰的），需要特殊处理
+      return this.calculateKeepComplex(expr, keepCount, keepType);
     }
     
+    // 多个表达式的情况（如kl(1d8;1d10)）
+    return this.calculateKeepMultiple(expressions, keepCount, keepType);
+  }
+
+  // 计算单一骰子的Keep操作（原逻辑）
+  calculateKeepSingleDice(expression, keepCount, keepType) {
     const { count, sides } = expression;
     const result = {};
     
@@ -715,51 +762,178 @@ class DiceCalculator {
     return result;
   }
 
+  // 计算复合表达式的Keep操作（支持重骰等）
+  calculateKeepComplex(expression, keepCount, keepType) {
+    // 首先计算复合表达式的所有可能结果
+    const baseResult = this.evaluate(expression);
+    
+    // 如果基础结果不是分布，无法应用keep
+    if (typeof baseResult !== 'object' || baseResult.distribution) {
+      return baseResult;
+    }
+    
+    // 将分布转换为值数组，然后应用keep逻辑
+    const result = {};
+    
+    // 对于复合表达式，我们需要模拟每个骰子的单独结果
+    // 这里需要更复杂的逻辑来处理重骰等情况
+    if (expression.type === 'reroll') {
+      return this.calculateKeepWithReroll(expression, keepCount, keepType);
+    }
+    
+    return baseResult;
+  }
+
+  // 计算带重骰的Keep操作
+  calculateKeepWithReroll(rerollExpr, keepCount, keepType) {
+    const { dice, minValue, maxValue, maxRerolls } = rerollExpr;
+    const { count, sides } = dice;
+    const result = {};
+    
+    // 生成单个骰子的重骰结果分布
+    const singleDiceOutcomes = this.generateSingleDiceRerollOutcomes(
+      sides, minValue, maxValue, maxRerolls
+    );
+    
+    // 生成所有可能的多骰子组合
+    function generateRerollCombinations(diceCount, singleOutcomes) {
+      if (diceCount === 1) {
+        return Object.entries(singleOutcomes).map(([value, count]) => ({
+          values: [parseInt(value)],
+          probability: count
+        }));
+      }
+      
+      const smallerCombinations = generateRerollCombinations(diceCount - 1, singleOutcomes);
+      const combinations = [];
+      
+      for (const [value, count] of Object.entries(singleOutcomes)) {
+        for (const combo of smallerCombinations) {
+          combinations.push({
+            values: [parseInt(value), ...combo.values],
+            probability: count * combo.probability
+          });
+        }
+      }
+      
+      return combinations;
+    }
+    
+    const allCombinations = generateRerollCombinations(count, singleDiceOutcomes);
+    
+    // 对每个组合应用keep规则
+    for (const combination of allCombinations) {
+      const sorted = [...combination.values].sort((a, b) => keepType === 'highest' ? b - a : a - b);
+      const kept = sorted.slice(0, keepCount);
+      const sum = kept.reduce((acc, val) => acc + val, 0);
+      
+      result[sum] = (result[sum] || 0) + combination.probability;
+    }
+    
+    // 将概率转换为整数计数
+    const scaleFactor = Object.values(singleDiceOutcomes).reduce((sum, count) => sum + count, 0) ** count;
+    const integerResult = {};
+    for (const [value, probability] of Object.entries(result)) {
+      const count = Math.round(probability);
+      if (count > 0) {
+        integerResult[value] = count;
+      }
+    }
+    
+    return integerResult;
+  }
+
+  // 计算多个不同表达式的Keep操作
+  calculateKeepMultiple(expressions, keepCount, keepType) {
+    // 计算每个表达式的结果分布
+    const distributions = expressions.map(expr => this.evaluate(expr));
+    
+    const result = {};
+    
+    // 生成所有可能的组合
+    function generateMultipleExpressionCombinations(distributions) {
+      if (distributions.length === 1) {
+        const dist = distributions[0];
+        return Object.entries(dist).map(([value, count]) => ({
+          values: [parseInt(value)],
+          count
+        }));
+      }
+      
+      const firstDist = distributions[0];
+      const restCombinations = generateMultipleExpressionCombinations(distributions.slice(1));
+      const combinations = [];
+      
+      for (const [value, count] of Object.entries(firstDist)) {
+        for (const combo of restCombinations) {
+          combinations.push({
+            values: [parseInt(value), ...combo.values],
+            count: count * combo.count
+          });
+        }
+      }
+      
+      return combinations;
+    }
+    
+    const allCombinations = generateMultipleExpressionCombinations(distributions);
+    
+    // 对每个组合应用keep规则
+    for (const combination of allCombinations) {
+      const sorted = [...combination.values].sort((a, b) => keepType === 'highest' ? b - a : a - b);
+      const kept = sorted.slice(0, keepCount);
+      const sum = kept.reduce((acc, val) => acc + val, 0);
+      
+      result[sum] = (result[sum] || 0) + combination.count;
+    }
+    
+    return result;
+  }
+
+  // 生成单个骰子的重骰结果分布
+  generateSingleDiceRerollOutcomes(sides, minReroll, maxReroll, maxRerollCount) {
+    const outcomes = {};
+    
+    // 递归函数计算重骰结果，携带概率权重
+    function calculateWithRerolls(currentValue, rerollsUsed, probability) {
+      // 如果当前值不在重骰范围内，或者已经用完重骰次数，则接受这个值
+      if (currentValue < minReroll || currentValue > maxReroll || rerollsUsed >= maxRerollCount) {
+        outcomes[currentValue] = (outcomes[currentValue] || 0) + probability;
+        return;
+      }
+      
+      // 如果在重骰范围内且还有重骰次数，进行重骰
+      const newProbability = probability / sides;
+      for (let newValue = 1; newValue <= sides; newValue++) {
+        calculateWithRerolls(newValue, rerollsUsed + 1, newProbability);
+      }
+    }
+    
+    // 对每个初始值开始计算，初始概率为 1/sides
+    for (let initialValue = 1; initialValue <= sides; initialValue++) {
+      calculateWithRerolls(initialValue, 0, 1);
+    }
+    
+    // 将概率转换为整数计数
+    const scaleFactor = Math.pow(sides, maxRerollCount + 2);
+    const integerOutcomes = {};
+    for (const [value, probability] of Object.entries(outcomes)) {
+      const count = Math.round(probability * scaleFactor);
+      if (count > 0) {
+        integerOutcomes[value] = count;
+      }
+    }
+    
+    return integerOutcomes;
+  }
+
   // 计算重骰操作
   calculateReroll(diceNode, minValue, maxValue, maxRerolls) {
     const { count, sides } = diceNode;
     const result = {};
     
-    // 生成单个骰子所有可能的重骰结果
-    function generateSingleDiceRerollOutcomes(diceSides, minReroll, maxReroll, maxRerollCount) {
-      const outcomes = {};
-      
-      // 递归函数计算重骰结果，携带概率权重
-      function calculateWithRerolls(currentValue, rerollsUsed, probability) {
-        // 如果当前值不在重骰范围内，或者已经用完重骰次数，则接受这个值
-        if (currentValue < minReroll || currentValue > maxReroll || rerollsUsed >= maxRerollCount) {
-          outcomes[currentValue] = (outcomes[currentValue] || 0) + probability;
-          return;
-        }
-        
-        // 如果在重骰范围内且还有重骰次数，进行重骰
-        // 每个新结果的概率是 probability / diceSides
-        const newProbability = probability / diceSides;
-        for (let newValue = 1; newValue <= diceSides; newValue++) {
-          calculateWithRerolls(newValue, rerollsUsed + 1, newProbability);
-        }
-      }
-      
-      // 对每个初始值开始计算，初始概率为 1/diceSides
-      for (let initialValue = 1; initialValue <= diceSides; initialValue++) {
-        calculateWithRerolls(initialValue, 0, 1);
-      }
-      
-      // 将概率转换为整数计数（乘以一个大的倍数以保持精度）
-      const scaleFactor = Math.pow(diceSides, maxRerollCount + 2); // 确保有足够精度
-      const integerOutcomes = {};
-      for (const [value, probability] of Object.entries(outcomes)) {
-        const count = Math.round(probability * scaleFactor);
-        if (count > 0) {
-          integerOutcomes[value] = count;
-        }
-      }
-      
-      return integerOutcomes;
-    }
-    
     // 获取单个骰子的重骰结果分布
-    const singleDiceOutcomes = generateSingleDiceRerollOutcomes(sides, minValue, maxValue, maxRerolls);
+    const singleDiceOutcomes = this.generateSingleDiceRerollOutcomes(sides, minValue, maxValue, maxRerolls);
     
     // 如果只有一个骰子，直接返回结果
     if (count === 1) {
@@ -1234,7 +1408,9 @@ class DiceCalculator {
         return this.calculateBasicDice(node.count, node.sides);
         
       case 'keep':
-        return this.calculateKeep(node.expression, node.count, node.keepType);
+        // 兼容旧版本的单表达式和新版本的多表达式
+        const expressions = node.expressions || [node.expression];
+        return this.calculateKeep(expressions, node.count, node.keepType);
         
       case 'reroll':
         return this.calculateReroll(node.dice, node.minValue, node.maxValue, node.maxRerolls);
