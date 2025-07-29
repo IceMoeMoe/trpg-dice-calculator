@@ -1008,7 +1008,13 @@ class DiceCalculator {
     // 标准化结果（将权重转换为整数计数）
     const totalWeight = Object.values(result).reduce((sum, weight) => sum + weight, 0);
     const normalizedResult = {};
-    const scaleFactor = 10000; // 用更大的缩放因子以保持精度
+    // 对于条件表达式，正确的总数应该考虑条件的总可能性
+    // 条件总数 × 真值总数（当条件成功时）+ 条件总数 × 假值总数（当条件失败时）
+    // 但实际上应该是条件总数 × max(真值总数, 假值总数)，因为每个条件结果对应一个完整的值分布
+    const conditionTotalCount = conditionResult.totalCount;
+    const maxBranchCount = Math.max(trueTotal, falseTotal);
+    const originalTotalCount = conditionTotalCount * maxBranchCount;
+    const scaleFactor = originalTotalCount;
     
     for (const [value, weight] of Object.entries(result)) {
       const normalizedCount = Math.round(weight * scaleFactor / totalWeight);
@@ -1154,7 +1160,10 @@ class DiceCalculator {
     // 标准化结果
     const totalWeight = Object.values(result).reduce((sum, weight) => sum + weight, 0);
     const normalizedResult = {};
-    const scaleFactor = 10000;
+    // 计算原始总数：20个d20结果 × 对应分支的总数
+    const maxBranchCount = Math.max(normalHitTotal, criticalHitTotal, missTotal);
+    const originalTotalCount = 20 * maxBranchCount; // d20有20种可能
+    const scaleFactor = originalTotalCount;
     
     for (const [value, weight] of Object.entries(result)) {
       const normalizedCount = Math.round(weight * scaleFactor / totalWeight);
@@ -1563,7 +1572,9 @@ class DiceCalculator {
     // 标准化结果
     const totalWeight = Object.values(combinedDistribution).reduce((sum, weight) => sum + weight, 0);
     const normalizedResult = {};
-    const scaleFactor = 10000;
+    // 使用原始总数作为缩放因子，保持总体可能性数量不变
+    const originalTotalCount = normalTotal; // 普通和暴击情况应该有相同的总数
+    const scaleFactor = originalTotalCount;
     
     for (const [value, weight] of Object.entries(combinedDistribution)) {
       const normalizedCount = Math.round(weight * scaleFactor / totalWeight);
@@ -1620,7 +1631,9 @@ class DiceCalculator {
     // 标准化结果
     const totalWeight = Object.values(combinedDistribution).reduce((sum, weight) => sum + weight, 0);
     const normalizedResult = {};
-    const scaleFactor = 10000;
+    // 使用原始总数作为缩放因子，保持总体可能性数量不变
+    const originalTotalCount = normalTotal; // 普通和暴击情况应该有相同的总数
+    const scaleFactor = originalTotalCount;
     
     for (const [value, weight] of Object.entries(combinedDistribution)) {
       const normalizedCount = Math.round(weight * scaleFactor / totalWeight);
