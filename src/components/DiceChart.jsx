@@ -47,10 +47,8 @@ const DiceChart = ({ distribution, totalOutcomes }) => {
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis 
             dataKey="value" 
-            type="number"
-            scale="linear"
-            domain={['dataMin', 'dataMax']}
-            tickCount={Math.min(chartData.length, 10)}
+            type="category"
+            interval={0}
           />
           <YAxis />
           <Tooltip content={<CustomTooltip />} />
