@@ -3,7 +3,7 @@ import DiceCalculator from './lib/diceCalculator'
 import FormulaInput from './components/FormulaInput'
 import ResultDisplay from './components/ResultDisplay'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.jsx'
-import { Dices, Calculator } from 'lucide-react'
+import { Dices, Calculator, Github } from 'lucide-react'
 import './App.css'
 
 function App() {
@@ -30,7 +30,17 @@ function App() {
       <div className="max-w-6xl mx-auto space-y-6">
         {/* 头部 */}
         <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-          <CardHeader className="text-center">
+          <CardHeader className="text-center relative">
+            {/* GitHub 链接 */}
+            <a 
+              href="https://github.com/IceMoeMoe/trpg-dice-calculator" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="absolute top-4 right-4 p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-full transition-colors"
+              title="查看 GitHub 仓库"
+            >
+              <Github className="w-6 h-6" />
+            </a>
             <CardTitle className="flex items-center justify-center gap-3 text-3xl font-bold text-gray-800">
               <Dices className="w-8 h-8 text-blue-600" />
               TRPG掷骰计算器
