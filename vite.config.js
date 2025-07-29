@@ -13,4 +13,8 @@ export default defineConfig({
   },
   // GitHub Pages 部署配置
   base: process.env.NODE_ENV === 'production' ? '/trpg-dice-calculator/' : '/',
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+  }
 })
