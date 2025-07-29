@@ -13,13 +13,13 @@ function App() {
   
   const calculator = new DiceCalculator()
 
-  const handleCalculate = async (formula) => {
+  const handleCalculate = async (formula, criticalOptions = {}) => {
     setIsCalculating(true)
     setCurrentFormula(formula)
     
     // 添加一个小延迟来显示加载状态
     setTimeout(() => {
-      const calculationResult = calculator.calculate(formula)
+      const calculationResult = calculator.calculate(formula, criticalOptions)
       setResult(calculationResult)
       setIsCalculating(false)
     }, 100)
@@ -106,6 +106,22 @@ function App() {
                   <span className="font-medium text-gray-700">复杂嵌套条件</span>
                   <code className="text-blue-600 font-mono">(d20&gt;=18) ? 0 : ((d20&gt;=12) ? (4d6/2) : 4d6)</code>
                 </div>
+                <div className="flex justify-between items-center p-2 bg-orange-50 rounded text-sm">
+                  <span className="font-medium text-orange-700">暴击翻倍伤害</span>
+                  <code className="text-orange-600 font-mono">#2d6+3#</code>
+                </div>
+                <div className="flex justify-between items-center p-2 bg-orange-50 rounded text-sm">
+                  <span className="font-medium text-orange-700">暴击切换骰子</span>
+                  <code className="text-orange-600 font-mono">|1d8|1d10|+3</code>
+                </div>
+                <div className="flex justify-between items-center p-2 bg-orange-50 rounded text-sm">
+                  <span className="font-medium text-orange-700">暴击额外伤害</span>
+                  <code className="text-orange-600 font-mono">2d6+[1d6]</code>
+                </div>
+                <div className="flex justify-between items-center p-2 bg-orange-50 rounded text-sm">
+                  <span className="font-medium text-orange-700">复合暴击攻击</span>
+                  <code className="text-orange-600 font-mono">d20&gt;11?#|1d8|1d10|#+3:0</code>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -151,6 +167,18 @@ function App() {
                 <div className="flex items-start gap-2">
                   <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">+, -, *, /</code>
                   <span>基本运算符和括号支持</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <code className="bg-orange-100 px-2 py-1 rounded text-orange-800 font-mono whitespace-nowrap">#表达式#</code>
+                  <span>暴击时结果翻倍，如 <code className="text-orange-600">#2d6#</code></span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <code className="bg-orange-100 px-2 py-1 rounded text-orange-800 font-mono whitespace-nowrap">|普通|暴击|</code>
+                  <span>暴击时切换表达式，如 <code className="text-orange-600">|1d8|1d10|</code></span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <code className="bg-orange-100 px-2 py-1 rounded text-orange-800 font-mono whitespace-nowrap">[表达式]</code>
+                  <span>仅暴击时生效，如 <code className="text-orange-600">[1d6+3]</code></span>
                 </div>
               </div>
             </CardContent>

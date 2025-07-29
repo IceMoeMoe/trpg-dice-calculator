@@ -84,6 +84,18 @@ class Lexer {
       } else if (char === '~') {
         this.tokens.push({ type: 'TILDE', value: '~' });
         this.position++;
+      } else if (char === '#') {
+        this.tokens.push({ type: 'HASH', value: '#' });
+        this.position++;
+      } else if (char === '|') {
+        this.tokens.push({ type: 'PIPE', value: '|' });
+        this.position++;
+      } else if (char === '[') {
+        this.tokens.push({ type: 'LBRACKET', value: '[' });
+        this.position++;
+      } else if (char === ']') {
+        this.tokens.push({ type: 'RBRACKET', value: ']' });
+        this.position++;
       } else {
         throw new Error(`未知字符: ${char}`);
       }
@@ -303,14 +315,15 @@ class Parser {
     // 检查是否是条件表达式 (condition ? valueIfTrue : valueIfFalse)
     if (this.currentToken().type === 'QUESTION') {
       this.advance(); // 跳过 '?'
-      const trueValue = this.parseComparison();
+      // 修改：支持在条件表达式的真值和假值部分解析暴击表达式和嵌套条件
+      const trueValue = this.parseConditional(); // 改为递归调用 parseConditional
       
       if (this.currentToken().type !== 'COLON') {
         throw new Error('条件表达式中缺少 ":"');
       }
       this.advance(); // 跳过 ':'
       
-      const falseValue = this.parseComparison();
+      const falseValue = this.parseConditional(); // 改为递归调用 parseConditional
       
       // 验证条件是否为比较表达式
       if (expression.type !== 'comparison') {
@@ -387,7 +400,7 @@ class Parser {
   }
 
   parseFactor() {
-    let diceNode = this.parseDice();
+    let diceNode = this.parseCritical(); // 改为先解析暴击表达式
     
     // 检查是否有重骰操作
     if (this.currentToken().type === 'REROLL' || this.currentToken().type === 'R') {
@@ -395,6 +408,68 @@ class Parser {
     }
     
     return diceNode;
+  }
+  
+  parseCritical() {
+    const token = this.currentToken();
+    
+    // 解析 #表达式# (暴击翻倍)
+    if (token.type === 'HASH') {
+      this.advance(); // 跳过第一个 #
+      const expression = this.parseExpression();
+      
+      if (this.currentToken().type !== 'HASH') {
+        throw new Error('暴击翻倍表达式缺少结束的 #');
+      }
+      this.advance(); // 跳过第二个 #
+      
+      return {
+        type: 'critical_double',
+        expression
+      };
+    }
+    
+    // 解析 |普通表达式|暴击表达式| (暴击切换)
+    if (token.type === 'PIPE') {
+      this.advance(); // 跳过第一个 |
+      const normalExpression = this.parseExpression();
+      
+      if (this.currentToken().type !== 'PIPE') {
+        throw new Error('暴击切换表达式缺少中间的 |');
+      }
+      this.advance(); // 跳过中间的 |
+      
+      const criticalExpression = this.parseExpression();
+      
+      if (this.currentToken().type !== 'PIPE') {
+        throw new Error('暴击切换表达式缺少结束的 |');
+      }
+      this.advance(); // 跳过最后的 |
+      
+      return {
+        type: 'critical_switch',
+        normalExpression,
+        criticalExpression
+      };
+    }
+    
+    // 解析 [表达式] (仅暴击时)
+    if (token.type === 'LBRACKET') {
+      this.advance(); // 跳过 [
+      const expression = this.parseExpression();
+      
+      if (this.currentToken().type !== 'RBRACKET') {
+        throw new Error('暴击专用表达式缺少结束的 ]');
+      }
+      this.advance(); // 跳过 ]
+      
+      return {
+        type: 'critical_only',
+        expression
+      };
+    }
+    
+    return this.parseDice();
   }
   
   parseDice() {
@@ -710,26 +785,40 @@ class DiceCalculator {
       throw new Error('条件表达式的条件部分必须是比较操作（如 d20+6 >= 17）');
     }
     
+    // 简化处理：暂时不使用复杂的暴击重合逻辑，使用标准条件表达式处理
+    // 注释掉原有的暴击重合检查
+    /*
+    if (this.criticalOptions && this.criticalOptions.criticalEnabled && this.hasD20InCondition(conditionNode)) {
+      return this.calculateConditionalWithCriticalOverlap(conditionNode, trueValueNode, falseValueNode, conditionResult);
+    }
+    */
+    
     const trueValueResult = this.evaluate(trueValueNode);
     const falseValueResult = this.evaluate(falseValueNode);
     
     const result = {};
     
     // 获取真值和假值的分布
-    const trueDist = trueValueResult.distribution || trueValueResult;
-    const falseDist = falseValueResult.distribution || falseValueResult;
+    const trueDist = trueValueResult.combined || trueValueResult.distribution || trueValueResult;
+    const falseDist = falseValueResult.combined || falseValueResult.distribution || falseValueResult;
+    
+    // 计算总计数来规范化概率
+    const trueTotal = Object.values(trueDist).reduce((sum, count) => sum + count, 0);
+    const falseTotal = Object.values(falseDist).reduce((sum, count) => sum + count, 0);
     
     // 计算条件成功时的结果分布
     for (const [value, count] of Object.entries(trueDist)) {
       const val = parseFloat(value);
-      const weightedCount = count * conditionResult.successProbability;
+      const relativeProbability = count / trueTotal; // 在该分布内的相对概率
+      const weightedCount = relativeProbability * conditionResult.successProbability;
       result[val] = (result[val] || 0) + weightedCount;
     }
     
     // 计算条件失败时的结果分布
     for (const [value, count] of Object.entries(falseDist)) {
       const val = parseFloat(value);
-      const weightedCount = count * conditionResult.failureProbability;
+      const relativeProbability = count / falseTotal; // 在该分布内的相对概率
+      const weightedCount = relativeProbability * conditionResult.failureProbability;
       result[val] = (result[val] || 0) + weightedCount;
     }
     
@@ -739,7 +828,7 @@ class DiceCalculator {
     const scaleFactor = 10000; // 用更大的缩放因子以保持精度
     
     for (const [value, weight] of Object.entries(result)) {
-      const normalizedCount = Math.round(weight * scaleFactor / totalWeight * scaleFactor);
+      const normalizedCount = Math.round(weight * scaleFactor / totalWeight);
       if (normalizedCount > 0) {
         normalizedResult[value] = normalizedCount;
       }
@@ -754,6 +843,153 @@ class DiceCalculator {
       condition: {
         successProbability: conditionResult.successProbability,
         failureProbability: conditionResult.failureProbability
+      }
+    };
+  }
+
+  // 检查条件中是否包含d20
+  hasD20InCondition(conditionNode) {
+    if (conditionNode.type === 'comparison') {
+      return this.containsD20(conditionNode.left) || this.containsD20(conditionNode.right);
+    }
+    return false;
+  }
+
+  // 递归检查表达式中是否包含d20
+  containsD20(node) {
+    if (node.type === 'dice' && node.sides === 20) {
+      return true;
+    }
+    if (node.type === 'binary_op') {
+      return this.containsD20(node.left) || this.containsD20(node.right);
+    }
+    return false;
+  }
+
+  // 处理暴击与命中重合的条件表达式
+  calculateConditionalWithCriticalOverlap(conditionNode, trueValueNode, falseValueNode, baseConditionResult) {
+    const criticalRate = this.criticalOptions.criticalRate;
+    
+    // 对于d20，暴击通常发生在最高的几个值
+    // 假设暴击发生在20面骰的最高值
+    const criticalThreshold = 21 - Math.ceil(criticalRate / 5); // 5%对应20，10%对应19-20，依此类推
+    
+    // 分别计算普通命中、暴击命中、失败的概率和结果
+    let normalHitProbability = 0;
+    let criticalHitProbability = 0;
+    let missProbability = 0;
+    
+    // 简化处理：假设条件是基于d20的简单比较
+    // 这里需要更复杂的逻辑来准确计算重合部分
+    if (conditionNode.type === 'comparison' && conditionNode.left.type === 'dice' && conditionNode.left.sides === 20) {
+      const threshold = conditionNode.right.value || 0;
+      const operator = conditionNode.operator;
+      
+      // 计算各种情况的概率
+      for (let roll = 1; roll <= 20; roll++) {
+        let hits = false;
+        const isCritical = roll >= criticalThreshold;
+        
+        switch (operator) {
+          case '>':
+            hits = roll > threshold;
+            break;
+          case '>=':
+            hits = roll >= threshold;
+            break;
+          case '<':
+            hits = roll < threshold;
+            break;
+          case '<=':
+            hits = roll <= threshold;
+            break;
+          case '=':
+            hits = roll === threshold;
+            break;
+        }
+        
+        if (hits && isCritical) {
+          criticalHitProbability += 0.05; // 每个值5%概率
+        } else if (hits && !isCritical) {
+          normalHitProbability += 0.05;
+        } else {
+          missProbability += 0.05;
+        }
+      }
+    } else {
+      // 回退到基础处理
+      normalHitProbability = baseConditionResult.successProbability * (1 - criticalRate / 100);
+      criticalHitProbability = baseConditionResult.successProbability * (criticalRate / 100);
+      missProbability = baseConditionResult.failureProbability;
+    }
+    
+    // 计算各种情况下的结果分布
+    this.isCalculatingCritical = false;
+    const normalHitResult = this.evaluate(trueValueNode);
+    const missResult = this.evaluate(falseValueNode);
+    
+    this.isCalculatingCritical = true;
+    const criticalHitResult = this.evaluate(trueValueNode);
+    
+    // 合并结果
+    const result = {};
+    
+    // 计算各分布的总计数
+    const normalHitDist = normalHitResult.distribution || normalHitResult;
+    const normalHitTotal = Object.values(normalHitDist).reduce((sum, count) => sum + count, 0);
+    
+    const criticalHitDist = criticalHitResult.distribution || criticalHitResult;
+    const criticalHitTotal = Object.values(criticalHitDist).reduce((sum, count) => sum + count, 0);
+    
+    const missDist = missResult.distribution || missResult;
+    const missTotal = Object.values(missDist).reduce((sum, count) => sum + count, 0);
+    
+    // 普通命中的贡献
+    for (const [value, count] of Object.entries(normalHitDist)) {
+      const val = parseFloat(value);
+      const relativeProbability = count / normalHitTotal;
+      const weightedCount = relativeProbability * normalHitProbability;
+      result[val] = (result[val] || 0) + weightedCount;
+    }
+    
+    // 暴击命中的贡献
+    for (const [value, count] of Object.entries(criticalHitDist)) {
+      const val = parseFloat(value);
+      const relativeProbability = count / criticalHitTotal;
+      const weightedCount = relativeProbability * criticalHitProbability;
+      result[val] = (result[val] || 0) + weightedCount;
+    }
+    
+    // 失败的贡献
+    for (const [value, count] of Object.entries(missDist)) {
+      const val = parseFloat(value);
+      const relativeProbability = count / missTotal;
+      const weightedCount = relativeProbability * missProbability;
+      result[val] = (result[val] || 0) + weightedCount;
+    }
+    
+    // 标准化结果
+    const totalWeight = Object.values(result).reduce((sum, weight) => sum + weight, 0);
+    const normalizedResult = {};
+    const scaleFactor = 10000;
+    
+    for (const [value, weight] of Object.entries(result)) {
+      const normalizedCount = Math.round(weight * scaleFactor / totalWeight);
+      if (normalizedCount > 0) {
+        normalizedResult[value] = normalizedCount;
+      }
+    }
+    
+    return {
+      type: 'conditional_critical',
+      combined: normalizedResult,
+      normalHitValues: normalHitDist,
+      criticalHitValues: criticalHitDist,
+      missValues: missDist,
+      probabilities: {
+        normalHit: normalHitProbability,
+        criticalHit: criticalHitProbability,
+        miss: missProbability
       }
     };
   }
@@ -980,9 +1216,190 @@ class DiceCalculator {
       case 'binary_op':
         return this.calculateBinaryOp(node.left, node.right, node.operator);
         
+      case 'critical_double':
+        return this.calculateCriticalDouble(node.expression);
+        
+      case 'critical_switch':
+        return this.calculateCriticalSwitch(node.normalExpression, node.criticalExpression);
+        
+      case 'critical_only':
+        return this.calculateCriticalOnly(node.expression);
+        
       default:
         throw new Error(`未知节点类型: ${node.type}`);
     }
+  }
+
+  // 计算暴击翻倍 #表达式#
+  calculateCriticalDouble(expression) {
+    const result = this.evaluate(expression);
+    
+    if (this.isCalculatingCritical) {
+      // 暴击时：结果翻倍
+      const doubledResult = {};
+      const distribution = result.distribution || result;
+      
+      for (const [value, count] of Object.entries(distribution)) {
+        const doubledValue = parseFloat(value) * 2;
+        doubledResult[doubledValue] = count;
+      }
+      
+      return doubledResult;
+    } else {
+      // 非暴击时：正常结果
+      return result;
+    }
+  }
+
+  // 计算暴击切换 |普通|暴击|
+  calculateCriticalSwitch(normalExpression, criticalExpression) {
+    if (this.isCalculatingCritical) {
+      // 暴击时：使用暴击表达式
+      return this.evaluate(criticalExpression);
+    } else {
+      // 非暴击时：使用普通表达式
+      return this.evaluate(normalExpression);
+    }
+  }
+
+  // 计算暴击专用 [表达式]
+  calculateCriticalOnly(expression) {
+    if (this.isCalculatingCritical) {
+      // 暴击时：计算表达式
+      return this.evaluate(expression);
+    } else {
+      // 非暴击时：返回0
+      return { 0: 1 };
+    }
+  }
+
+  // 计算带暴击的结果
+  calculateWithCritical(ast, criticalRate) {
+    const criticalProbability = criticalRate / 100;
+    const normalProbability = 1 - criticalProbability;
+    
+    // 分别计算普通情况和暴击情况
+    this.isCalculatingCritical = false;
+    const normalResult = this.evaluate(ast);
+    
+    this.isCalculatingCritical = true;
+    const criticalResult = this.evaluate(ast);
+    
+    // 处理不同类型的结果
+    if (normalResult.type === 'conditional' || criticalResult.type === 'conditional') {
+      // 如果是条件表达式，返回特殊处理
+      return this.handleConditionalCritical(normalResult, criticalResult, normalProbability, criticalProbability);
+    }
+    
+    // 合并普通分布结果
+    const combinedDistribution = {};
+    const normalDist = normalResult.distribution || normalResult;
+    const criticalDist = criticalResult.distribution || criticalResult;
+    
+    // 计算各分布的总计数
+    const normalTotal = Object.values(normalDist).reduce((sum, count) => sum + count, 0);
+    const criticalTotal = Object.values(criticalDist).reduce((sum, count) => sum + count, 0);
+    
+    // 添加普通情况的权重
+    for (const [value, count] of Object.entries(normalDist)) {
+      const val = parseFloat(value);
+      const relativeProbability = count / normalTotal;
+      const weightedCount = relativeProbability * normalProbability;
+      combinedDistribution[val] = (combinedDistribution[val] || 0) + weightedCount;
+    }
+    
+    // 添加暴击情况的权重
+    for (const [value, count] of Object.entries(criticalDist)) {
+      const val = parseFloat(value);
+      const relativeProbability = count / criticalTotal;
+      const weightedCount = relativeProbability * criticalProbability;
+      combinedDistribution[val] = (combinedDistribution[val] || 0) + weightedCount;
+    }
+    
+    // 标准化结果
+    const totalWeight = Object.values(combinedDistribution).reduce((sum, weight) => sum + weight, 0);
+    const normalizedResult = {};
+    const scaleFactor = 10000;
+    
+    for (const [value, weight] of Object.entries(combinedDistribution)) {
+      const normalizedCount = Math.round(weight * scaleFactor / totalWeight);
+      if (normalizedCount > 0) {
+        normalizedResult[value] = normalizedCount;
+      }
+    }
+    
+    const average = this.calculateAverage({ distribution: normalizedResult });
+    const totalOutcomes = Object.values(normalizedResult).reduce((sum, count) => sum + count, 0);
+    
+    return {
+      distribution: normalizedResult,
+      average,
+      totalOutcomes,
+      success: true,
+      isCritical: true,
+      criticalRate,
+      normalDistribution: normalDist,
+      criticalDistribution: criticalDist,
+      normalProbability,
+      criticalProbability
+    };
+  }
+
+  // 处理条件表达式的暴击
+  handleConditionalCritical(normalResult, criticalResult, normalProbability, criticalProbability) {
+    // 简化处理：直接合并条件结果
+    const normalDist = normalResult.combined || normalResult.distribution || normalResult;
+    const criticalDist = criticalResult.combined || criticalResult.distribution || criticalResult;
+    
+    const combinedDistribution = {};
+    
+    // 计算各分布的总计数
+    const normalTotal = Object.values(normalDist).reduce((sum, count) => sum + count, 0);
+    const criticalTotal = Object.values(criticalDist).reduce((sum, count) => sum + count, 0);
+    
+    // 添加普通情况的权重
+    for (const [value, count] of Object.entries(normalDist)) {
+      const val = parseFloat(value);
+      const relativeProbability = count / normalTotal;
+      const weightedCount = relativeProbability * normalProbability;
+      combinedDistribution[val] = (combinedDistribution[val] || 0) + weightedCount;
+    }
+    
+    // 添加暴击情况的权重
+    for (const [value, count] of Object.entries(criticalDist)) {
+      const val = parseFloat(value);
+      const relativeProbability = count / criticalTotal;
+      const weightedCount = relativeProbability * criticalProbability;
+      combinedDistribution[val] = (combinedDistribution[val] || 0) + weightedCount;
+    }
+    
+    // 标准化结果
+    const totalWeight = Object.values(combinedDistribution).reduce((sum, weight) => sum + weight, 0);
+    const normalizedResult = {};
+    const scaleFactor = 10000;
+    
+    for (const [value, weight] of Object.entries(combinedDistribution)) {
+      const normalizedCount = Math.round(weight * scaleFactor / totalWeight);
+      if (normalizedCount > 0) {
+        normalizedResult[value] = normalizedCount;
+      }
+    }
+    
+    const average = this.calculateAverage({ distribution: normalizedResult });
+    const totalOutcomes = Object.values(normalizedResult).reduce((sum, count) => sum + count, 0);
+    
+    return {
+      distribution: normalizedResult, // 主要修复：确保 distribution 字段正确设置
+      average,
+      totalOutcomes,
+      success: true,
+      isCritical: true,
+      criticalRate: this.criticalOptions.criticalRate,
+      normalDistribution: normalDist,
+      criticalDistribution: criticalDist,
+      normalProbability,
+      criticalProbability
+    };
   }
 
   // 计算平均值（支持概率类型）
@@ -992,7 +1409,7 @@ class DiceCalculator {
       return result.successProbability;
     }
     
-    if (result.type === 'conditional') {
+    if (result.type === 'conditional' || result.type === 'conditional_critical') {
       // 对于条件类型，计算合并分布的平均值
       const distribution = result.combined;
       let totalSum = 0;
@@ -1019,53 +1436,74 @@ class DiceCalculator {
   }
 
   // 主要计算函数
-  calculate(formula) {
+  calculate(formula, criticalOptions = {}) {
     try {
+      this.criticalOptions = criticalOptions;
+      
       const lexer = new Lexer(formula);
       const tokens = lexer.tokenize();
       
       const parser = new Parser(tokens);
       const ast = parser.parse();
       
-      const result = this.evaluate(ast);
-      const average = this.calculateAverage(result);
-      
-      // 处理不同类型的结果
-      if (result.type === 'probability') {
-        return {
-          distribution: result.distribution,
-          average,
-          totalOutcomes: result.totalCount,
-          success: true,
-          isProbability: true,
-          successProbability: result.successProbability,
-          successCount: result.successCount,
-          probabilityPercentage: (result.successProbability * 100).toFixed(2) + '%'
-        };
-      } else if (result.type === 'conditional') {
-        const totalOutcomes = Object.values(result.combined).reduce((sum, count) => sum + count, 0);
-        
-        return {
-          distribution: result.combined,
-          average,
-          totalOutcomes,
-          success: true,
-          isConditional: true,
-          trueValues: result.trueValues,
-          falseValues: result.falseValues,
-          condition: result.condition
-        };
+      // 如果启用了暴击系统，需要分别计算普通和暴击情况
+      if (criticalOptions.criticalEnabled && criticalOptions.criticalRate > 0) {
+        return this.calculateWithCritical(ast, criticalOptions.criticalRate);
       } else {
-        const distribution = result.distribution || result;
-        const totalOutcomes = Object.values(distribution).reduce((sum, count) => sum + count, 0);
+        const result = this.evaluate(ast);
+        const average = this.calculateAverage(result);
         
-        return {
-          distribution,
-          average,
-          totalOutcomes,
-          success: true,
-          isProbability: false
-        };
+        // 处理不同类型的结果
+        if (result.type === 'probability') {
+          return {
+            distribution: result.distribution,
+            average,
+            totalOutcomes: result.totalCount,
+            success: true,
+            isProbability: true,
+            successProbability: result.successProbability,
+            successCount: result.successCount,
+            probabilityPercentage: (result.successProbability * 100).toFixed(2) + '%'
+          };
+        } else if (result.type === 'conditional') {
+          const totalOutcomes = Object.values(result.combined).reduce((sum, count) => sum + count, 0);
+          
+          return {
+            distribution: result.combined,
+            average,
+            totalOutcomes,
+            success: true,
+            isConditional: true,
+            trueValues: result.trueValues,
+            falseValues: result.falseValues,
+            condition: result.condition
+          };
+        } else if (result.type === 'conditional_critical') {
+          const totalOutcomes = Object.values(result.combined).reduce((sum, count) => sum + count, 0);
+          
+          return {
+            distribution: result.combined,
+            average,
+            totalOutcomes,
+            success: true,
+            isConditionalCritical: true,
+            normalHitValues: result.normalHitValues,
+            criticalHitValues: result.criticalHitValues,
+            missValues: result.missValues,
+            probabilities: result.probabilities
+          };
+        } else {
+          const distribution = result.distribution || result;
+          const totalOutcomes = Object.values(distribution).reduce((sum, count) => sum + count, 0);
+          
+          return {
+            distribution,
+            average,
+            totalOutcomes,
+            success: true,
+            isProbability: false
+          };
+        }
       }
     } catch (error) {
       return {

@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
-import { TrendingUp, Target, AlertCircle } from 'lucide-react';
+import { TrendingUp, Target, AlertCircle, Zap } from 'lucide-react';
 import DiceChart from './DiceChart';
 
 const ResultDisplay = ({ result, formula }) => {
@@ -115,9 +115,116 @@ const ResultDisplay = ({ result, formula }) => {
             trueValues={result.trueValues}
             falseValues={result.falseValues}
             condition={result.condition}
+            isCritical={result.isCritical}
+            normalDistribution={result.normalDistribution}
+            criticalDistribution={result.criticalDistribution}
+            normalProbability={result.normalProbability}
+            criticalProbability={result.criticalProbability}
+            isConditionalCritical={result.isConditionalCritical}
+            normalHitValues={result.normalHitValues}
+            criticalHitValues={result.criticalHitValues}
+            missValues={result.missValues}
+            probabilities={result.probabilities}
           />
         </CardContent>
       </Card>
+
+      {/* 暴击信息卡片 - 只在暴击模式时显示 */}
+      {result.isCritical && (
+        <Card className="border-orange-200">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-orange-600">
+              <Zap className="w-5 h-5" />
+              暴击系统信息
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="text-center p-3 bg-orange-50 rounded-lg">
+                <p className="text-sm text-gray-600">暴击率</p>
+                <p className="text-2xl font-bold text-orange-600">
+                  {result.criticalRate}%
+                </p>
+              </div>
+              <div className="text-center p-3 bg-blue-50 rounded-lg">
+                <p className="text-sm text-gray-600">普通概率</p>
+                <p className="text-2xl font-bold text-blue-600">
+                  {(result.normalProbability * 100).toFixed(1)}%
+                </p>
+              </div>
+              <div className="text-center p-3 bg-red-50 rounded-lg">
+                <p className="text-sm text-gray-600">暴击概率</p>
+                <p className="text-2xl font-bold text-red-600">
+                  {(result.criticalProbability * 100).toFixed(1)}%
+                </p>
+              </div>
+            </div>
+            <div className="text-sm text-gray-600">
+              <p>
+                • <span className="inline-block w-3 h-3 bg-blue-500 rounded mr-2"></span>
+                蓝色表示普通情况的结果分布
+              </p>
+              <p>
+                • <span className="inline-block w-3 h-3 bg-red-500 rounded mr-2"></span>
+                红色表示暴击情况的结果分布
+              </p>
+              <p>
+                • <span className="inline-block w-3 h-3 bg-purple-500 rounded mr-2"></span>
+                紫色表示合并后的最终结果分布
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 条件暴击信息卡片 - 只在条件暴击判断时显示 */}
+      {result.isConditionalCritical && (
+        <Card className="border-purple-200">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-purple-600">
+              <Target className="w-5 h-5" />
+              <Zap className="w-5 h-5" />
+              条件暴击信息
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="text-center p-3 bg-blue-50 rounded-lg">
+                <p className="text-sm text-gray-600">普通命中</p>
+                <p className="text-2xl font-bold text-blue-600">
+                  {(result.probabilities.normalHit * 100).toFixed(2)}%
+                </p>
+              </div>
+              <div className="text-center p-3 bg-red-50 rounded-lg">
+                <p className="text-sm text-gray-600">暴击命中</p>
+                <p className="text-2xl font-bold text-red-600">
+                  {(result.probabilities.criticalHit * 100).toFixed(2)}%
+                </p>
+              </div>
+              <div className="text-center p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-600">失败</p>
+                <p className="text-2xl font-bold text-gray-600">
+                  {(result.probabilities.miss * 100).toFixed(2)}%
+                </p>
+              </div>
+            </div>
+            <div className="text-sm text-gray-600">
+              <p>
+                • <span className="inline-block w-3 h-3 bg-blue-500 rounded mr-2"></span>
+                蓝色表示普通命中的结果分布
+              </p>
+              <p>
+                • <span className="inline-block w-3 h-3 bg-red-500 rounded mr-2"></span>
+                红色表示暴击命中的结果分布
+              </p>
+              <p>
+                • <span className="inline-block w-3 h-3 bg-gray-500 rounded mr-2"></span>
+                灰色表示失败的结果分布
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 条件信息卡片 - 只在条件判断时显示 */}
       {result.isConditional && (
