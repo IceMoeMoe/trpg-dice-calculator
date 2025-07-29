@@ -145,6 +145,10 @@ function App() {
                   <span>条件表达式，用于豁免计算</span>
                 </div>
                 <div className="flex items-start gap-2">
+                  <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">表达式rX~YeZ</code>
+                  <span>条件重骰表达式，用于在数值区间重骰，如d4r1~2e1，其中1为重骰限制次数</span>
+                </div>
+                <div className="flex items-start gap-2">
                   <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">+, -, *, /</code>
                   <span>基本运算符和括号支持</span>
                 </div>

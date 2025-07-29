@@ -14,6 +14,20 @@ class Lexer {
       
       if (this.isDigit(char)) {
         this.readNumber();
+      } else if (char === 'd' && this.position === 0) {
+        // 处理开头的'd'（如d20）
+        this.tokens.push({ type: 'D', value: 'd' });
+        this.position++;
+      } else if (char === 'd') {
+        // 检查前一个字符是否是数字
+        if (this.position > 0 && this.isDigit(this.input[this.position - 1])) {
+          // 这个'd'是掷骰表达式的一部分，在readNumber中已经处理
+          this.tokens.push({ type: 'D', value: 'd' });
+          this.position++;
+        } else {
+          this.tokens.push({ type: 'D', value: 'd' });
+          this.position++;
+        }
       } else if (this.isLetter(char)) {
         this.readIdentifier();
       } else if (char === '(') {
@@ -67,6 +81,9 @@ class Lexer {
       } else if (char === ':') {
         this.tokens.push({ type: 'COLON', value: ':' });
         this.position++;
+      } else if (char === '~') {
+        this.tokens.push({ type: 'TILDE', value: '~' });
+        this.position++;
       } else {
         throw new Error(`未知字符: ${char}`);
       }
@@ -118,14 +135,51 @@ class Lexer {
 
   readIdentifier() {
     let identifier = '';
-    while (this.position < this.input.length && 
-           (this.isLetter(this.input[this.position]) || this.isDigit(this.input[this.position]))) {
-      identifier += this.input[this.position];
-      this.position++;
+    const startPos = this.position;
+    
+    // 特殊处理：如果是以 'r' 开头，继续读取包括 '~' 和更多字符直到下一个空格或操作符
+    if (this.input[this.position] === 'r') {
+      while (this.position < this.input.length && 
+             (this.isLetter(this.input[this.position]) || 
+              this.isDigit(this.input[this.position]) || 
+              this.input[this.position] === '~')) {
+        identifier += this.input[this.position];
+        this.position++;
+      }
+    } else {
+      // 正常的标识符读取
+      while (this.position < this.input.length && 
+             (this.isLetter(this.input[this.position]) || this.isDigit(this.input[this.position]))) {
+        identifier += this.input[this.position];
+        this.position++;
+      }
+    }
+    
+    // 智能解析复杂标识符（如 d6r1, d6r1~2e1 等）
+    if (identifier.includes('d') && identifier.includes('r')) {
+      // 尝试拆分掷骰和重骰部分
+      const diceMatch = identifier.match(/^(\d*)d(\d+)(.*)$/);
+      if (diceMatch) {
+        const count = diceMatch[1] ? parseInt(diceMatch[1]) : 1;
+        const sides = parseInt(diceMatch[2]);
+        const remaining = diceMatch[3];
+        
+        // 添加掷骰token
+        this.tokens.push({ 
+          type: 'DICE', 
+          value: { count, sides }
+        });
+        
+        // 处理剩余的重骰部分
+        if (remaining) {
+          this.parseRerollFromString(remaining);
+        }
+        return;
+      }
     }
     
     // 检查是否是掷骰表达式 (如 "2d6" 或 "d20")
-    if (identifier.includes('d')) {
+    if (identifier.includes('d') && !identifier.includes('r')) {
       const parts = identifier.split('d');
       if (parts.length === 2) {
         // 处理 "2d6" 格式
@@ -147,12 +201,6 @@ class Lexer {
       }
     }
     
-    // 检查是否是单独的'd'字符（用于处理像"d6"这样的表达式）
-    if (identifier === 'd') {
-      this.tokens.push({ type: 'D', value: 'd' });
-      return;
-    }
-    
     // 检查是否是keep操作 (如 "kh", "kl", "kh3", "kl3")
     if (identifier.startsWith('k')) {
       const match = identifier.match(/^k([hl])(\d*)$/);
@@ -167,7 +215,70 @@ class Lexer {
       }
     }
     
+    // 检查是否是重骰操作 (如 "r1~2e3", "r1e1", "r1~2", "r1")
+    if (identifier.startsWith('r')) {
+      const rerollMatch = identifier.match(/^r(\d+)(?:~(\d+))?(?:e(\d+))?$/);
+      if (rerollMatch) {
+        const minValue = parseInt(rerollMatch[1]);
+        const maxValue = rerollMatch[2] ? parseInt(rerollMatch[2]) : minValue;
+        const maxRerolls = rerollMatch[3] ? parseInt(rerollMatch[3]) : 1;
+        
+        this.tokens.push({ 
+          type: 'REROLL', 
+          value: { 
+            minValue, 
+            maxValue, 
+            maxRerolls 
+          }
+        });
+        return;
+      }
+    }
+    
+    // 检查是否是单独的 'r' 字符
+    if (identifier === 'r') {
+      this.tokens.push({ type: 'R', value: 'r' });
+      return;
+    }
+    
+    // 检查是否是单独的 'e' 字符
+    if (identifier === 'e') {
+      this.tokens.push({ type: 'E', value: 'e' });
+      return;
+    }
+    
+    // 检查是否是以'e'开头的数字（如 e1, e2, e3）
+    if (identifier.startsWith('e')) {
+      const eMatch = identifier.match(/^e(\d+)$/);
+      if (eMatch) {
+        this.tokens.push({ type: 'E', value: 'e' });
+        this.tokens.push({ type: 'NUMBER', value: parseInt(eMatch[1]) });
+        return;
+      }
+    }
+    
     throw new Error(`未知标识符: ${identifier}`);
+  }
+  
+  // 辅助方法：从字符串解析重骰部分
+  parseRerollFromString(rerollStr) {
+    const match = rerollStr.match(/^r(\d+)(?:~(\d+))?(?:e(\d+))?$/);
+    if (match) {
+      const minValue = parseInt(match[1]);
+      const maxValue = match[2] ? parseInt(match[2]) : minValue;
+      const maxRerolls = match[3] ? parseInt(match[3]) : 1;
+      
+      this.tokens.push({ 
+        type: 'REROLL', 
+        value: { 
+          minValue, 
+          maxValue, 
+          maxRerolls 
+        }
+      });
+    } else {
+      throw new Error(`无法解析重骰字符串: ${rerollStr}`);
+    }
   }
 }
 
@@ -276,6 +387,17 @@ class Parser {
   }
 
   parseFactor() {
+    let diceNode = this.parseDice();
+    
+    // 检查是否有重骰操作
+    if (this.currentToken().type === 'REROLL' || this.currentToken().type === 'R') {
+      return this.parseReroll(diceNode);
+    }
+    
+    return diceNode;
+  }
+  
+  parseDice() {
     const token = this.currentToken();
     
     if (token.type === 'NUMBER') {
@@ -371,6 +493,70 @@ class Parser {
     
     throw new Error(`意外的token: ${token.type}`);
   }
+  
+  parseReroll(diceNode) {
+    // 确保只有掷骰节点才能进行重骰
+    if (diceNode.type !== 'dice') {
+      throw new Error('重骰操作只能应用于掷骰');
+    }
+    
+    const token = this.currentToken();
+    
+    if (token.type === 'REROLL') {
+      // 完整的重骰token，包含所有信息
+      this.advance();
+      return {
+        type: 'reroll',
+        dice: diceNode,
+        minValue: token.value.minValue,
+        maxValue: token.value.maxValue,
+        maxRerolls: token.value.maxRerolls
+      };
+    } else if (token.type === 'R') {
+      // 分离式的重骰解析：r数字~数字e数字
+      this.advance(); // 跳过 'r'
+      
+      // 读取最小值
+      if (this.currentToken().type !== 'NUMBER') {
+        throw new Error('重骰操作r后必须跟数字');
+      }
+      const minValue = this.currentToken().value;
+      this.advance();
+      
+      let maxValue = minValue; // 默认最大值等于最小值
+      let maxRerolls = 1; // 默认重骰1次
+      
+      // 检查是否有波浪号（范围）
+      if (this.currentToken().type === 'TILDE') {
+        this.advance(); // 跳过 '~'
+        if (this.currentToken().type !== 'NUMBER') {
+          throw new Error('~后必须跟数字');
+        }
+        maxValue = this.currentToken().value;
+        this.advance();
+      }
+      
+      // 检查是否有e（最大重骰次数）
+      if (this.currentToken().type === 'E') {
+        this.advance(); // 跳过 'e'
+        if (this.currentToken().type !== 'NUMBER') {
+          throw new Error('e后必须跟数字');
+        }
+        maxRerolls = this.currentToken().value;
+        this.advance();
+      }
+      
+      return {
+        type: 'reroll',
+        dice: diceNode,
+        minValue,
+        maxValue,
+        maxRerolls
+      };
+    }
+    
+    return diceNode;
+  }
 
   currentToken() {
     return this.tokens[this.position];
@@ -452,6 +638,67 @@ class DiceCalculator {
     }
     
     return result;
+  }
+
+  // 计算重骰操作
+  calculateReroll(diceNode, minValue, maxValue, maxRerolls) {
+    const { count, sides } = diceNode;
+    const result = {};
+    
+    // 生成单个骰子所有可能的重骰结果
+    function generateSingleDiceRerollOutcomes(diceSides, minReroll, maxReroll, maxRerollCount) {
+      const outcomes = {};
+      
+      // 递归函数计算重骰结果
+      function calculateWithRerolls(currentValue, rerollsUsed) {
+        // 如果当前值不在重骰范围内，或者已经用完重骰次数，则接受这个值
+        if (currentValue < minReroll || currentValue > maxReroll || rerollsUsed >= maxRerollCount) {
+          outcomes[currentValue] = (outcomes[currentValue] || 0) + 1;
+          return;
+        }
+        
+        // 如果在重骰范围内且还有重骰次数，进行重骰
+        for (let newValue = 1; newValue <= diceSides; newValue++) {
+          calculateWithRerolls(newValue, rerollsUsed + 1);
+        }
+      }
+      
+      // 对每个初始值开始计算
+      for (let initialValue = 1; initialValue <= diceSides; initialValue++) {
+        calculateWithRerolls(initialValue, 0);
+      }
+      
+      return outcomes;
+    }
+    
+    // 获取单个骰子的重骰结果分布
+    const singleDiceOutcomes = generateSingleDiceRerollOutcomes(sides, minValue, maxValue, maxRerolls);
+    
+    // 如果只有一个骰子，直接返回结果
+    if (count === 1) {
+      return singleDiceOutcomes;
+    }
+    
+    // 多个骰子的情况：组合所有骰子的结果
+    function combineMultipleDice(diceCount, singleOutcomes, currentResult = { 0: 1 }) {
+      if (diceCount === 0) return currentResult;
+      
+      const newResult = {};
+      
+      for (const [currentSum, currentCount] of Object.entries(currentResult)) {
+        const sum = parseInt(currentSum);
+        
+        for (const [diceValue, diceCount] of Object.entries(singleOutcomes)) {
+          const newSum = sum + parseInt(diceValue);
+          const newCount = currentCount * diceCount;
+          newResult[newSum] = (newResult[newSum] || 0) + newCount;
+        }
+      }
+      
+      return combineMultipleDice(diceCount - 1, singleOutcomes, newResult);
+    }
+    
+    return combineMultipleDice(count, singleDiceOutcomes);
   }
 
   // 计算条件表达式
@@ -720,6 +967,9 @@ class DiceCalculator {
         
       case 'keep':
         return this.calculateKeep(node.expression, node.count, node.keepType);
+        
+      case 'reroll':
+        return this.calculateReroll(node.dice, node.minValue, node.maxValue, node.maxRerolls);
         
       case 'comparison':
         return this.calculateComparison(node.left, node.right, node.operator);
