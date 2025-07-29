@@ -14,11 +14,64 @@ const FormulaInput = ({ onCalculate, isCalculating }) => {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (formula.trim()) {
+      // 在计算时自动调整暴击率
+      let finalCriticalRate = criticalRate;
+      if (criticalEnabled && criticalRate > 0) {
+        const criticalDiceSides = getCriticalDiceFromFormula(formula);
+        finalCriticalRate = adjustCriticalRateForDice(criticalRate, criticalDiceSides);
+      }
+      
       onCalculate(formula.trim(), {
         criticalEnabled,
-        criticalRate: criticalEnabled ? criticalRate : 0
+        criticalRate: criticalEnabled ? finalCriticalRate : 0
       });
     }
+  };
+
+  // 获取条件表达式中的暴击判定骰子
+  const getCriticalDiceFromFormula = (formula) => {
+    // 首先尝试匹配条件表达式模式: 条件?真值:假值
+    const conditionalMatch = formula.match(/^([^?]+)\?([^:]+):(.+)$/);
+    if (conditionalMatch) {
+      const conditionPart = conditionalMatch[1].trim();
+      // 在条件部分查找骰子
+      const diceMatch = conditionPart.match(/(\d*)d(\d+)/);
+      if (diceMatch) {
+        return parseInt(diceMatch[2]);
+      }
+    }
+    
+    // 如果没有条件表达式，查找简单的比较表达式中的骰子
+    // 例如: d20>15, 2d6>=8 等
+    const comparisonMatch = formula.match(/(\d*)d(\d+)\s*[><=!]+/);
+    if (comparisonMatch) {
+      return parseInt(comparisonMatch[2]);
+    }
+    
+    // 如果都没有找到，则查找第一个出现的骰子
+    const firstDiceMatch = formula.match(/(\d*)d(\d+)/);
+    if (firstDiceMatch) {
+      return parseInt(firstDiceMatch[2]);
+    }
+    
+    // 默认返回d20（最常见的TRPG系统）
+    return 20;
+  };
+
+  // 根据暴击判定骰子自动修正暴击率
+  const adjustCriticalRateForDice = (inputRate, criticalDiceSides) => {
+    // 计算每面的概率百分比
+    const probabilityPerSide = 100 / criticalDiceSides;
+    
+    // 将输入的暴击率转换为最接近的整数倍面数
+    const targetSides = Math.round(inputRate / probabilityPerSide);
+    const adjustedRate = targetSides * probabilityPerSide;
+    
+    // 确保调整后的暴击率在合理范围内
+    if (adjustedRate > 100) return 100;
+    if (adjustedRate < 0) return 0;
+    
+    return adjustedRate;
   };
 
   const handleCriticalRateChange = (e) => {
@@ -32,35 +85,53 @@ const FormulaInput = ({ onCalculate, isCalculating }) => {
   const getCriticalRateSuggestion = (formula, criticalRate) => {
     if (!criticalEnabled || criticalRate === 0) return { suggestion: null };
     
-    // 检查公式中是否包含骰子
-    const diceMatch = formula.match(/(\d*)d(\d+)/g);
-    if (!diceMatch) return { suggestion: null };
+    // 获取暴击判定骰子
+    const criticalDiceSides = getCriticalDiceFromFormula(formula);
+    const probabilityPerSide = 100 / criticalDiceSides;
     
-    // 获取所有骰子面数
-    const diceSides = diceMatch.map(dice => {
-      const match = dice.match(/(\d*)d(\d+)/);
-      return parseInt(match[2]);
-    });
+    // 检查当前暴击率是否为骰子面数的整数倍
+    const isExactMultiple = Math.abs(criticalRate % probabilityPerSide) < 0.01;
+    const sidesForCritical = Math.round(criticalRate / probabilityPerSide);
     
-    // 检查是否包含d20（最常见的暴击骰）
-    const hasD20 = diceSides.includes(20);
-    if (hasD20 && criticalRate === 5) {
-      return { suggestion: 'info', message: 'D20系统的标准暴击率，相当于出20时暴击' };
+    if (isExactMultiple && sidesForCritical > 0) {
+      if (criticalDiceSides === 20 && criticalRate === 5) {
+        return { suggestion: 'info', message: 'D20系统的标准暴击率，相当于出20时暴击' };
+      } else if (criticalDiceSides === 20 && criticalRate === 10) {
+        return { suggestion: 'info', message: '扩展暴击范围，相当于出19-20时暴击' };
+      } else if (sidesForCritical === 1) {
+        return { suggestion: 'info', message: `D${criticalDiceSides}系统，相当于出${criticalDiceSides}时暴击` };
+      } else {
+        const criticalRange = criticalDiceSides - sidesForCritical + 1;
+        return { suggestion: 'info', message: `D${criticalDiceSides}系统，相当于出${criticalRange}-${criticalDiceSides}时暴击` };
+      }
     }
     
-    // 检查是否为常见的TRPG暴击率
+    // 检查是否为常见的TRPG暴击率（适用于任何骰子）
     const commonRates = [5, 10, 15, 20, 25];
     if (commonRates.includes(criticalRate)) {
       return { suggestion: null }; // 常见暴击率，不需要建议
     }
     
-    // 对于d6等小面数骰子，如果设置了很高的暴击率，给出提示
-    const smallDice = diceSides.find(sides => sides <= 6);
-    if (smallDice && criticalRate > 30) {
+    // 对于小面数骰子，如果设置了很高的暴击率，给出提示
+    if (criticalDiceSides <= 6 && criticalRate > 50) {
       return { 
         suggestion: 'warning', 
-        message: `${criticalRate}%的暴击率对于d${smallDice}来说可能偏高，常见的设置为5%-25%` 
+        message: `${criticalRate}%的暴击率对于d${criticalDiceSides}来说过高，建议设置为${probabilityPerSide.toFixed(1)}%的整数倍` 
       };
+    }
+    
+    // 如果不是整数倍，提供调整建议
+    if (!isExactMultiple) {
+      const nearestLower = Math.floor(criticalRate / probabilityPerSide) * probabilityPerSide;
+      const nearestHigher = Math.ceil(criticalRate / probabilityPerSide) * probabilityPerSide;
+      const suggestions = [nearestLower, nearestHigher].filter(rate => rate >= 0 && rate <= 100);
+      
+      if (suggestions.length > 0) {
+        return {
+          suggestion: 'info',
+          message: `建议调整为${suggestions.map(s => s.toFixed(1)).join('%或')}%以对应D${criticalDiceSides}的整数面数`
+        };
+      }
     }
     
     return { suggestion: null };

@@ -15,45 +15,59 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
     const criticalHitTotalCount = Object.values(criticalHitValues).reduce((sum, count) => sum + count, 0);
     const missTotalCount = Object.values(missValues).reduce((sum, count) => sum + count, 0);
     
-    const chartData = Array.from(allValues)
+    // 先计算每个值的实际概率
+    const valueData = Array.from(allValues)
       .sort((a, b) => a - b)
-      .map(value => ({
-        value: value,
-        normalHitCount: (normalHitValues[value] || 0) * probabilities.normalHit,
-        criticalHitCount: (criticalHitValues[value] || 0) * probabilities.criticalHit,
-        missCount: (missValues[value] || 0) * probabilities.miss,
-        normalHitProbability: normalHitValues[value] ? ((normalHitValues[value] / normalHitTotalCount) * probabilities.normalHit * 100).toFixed(2) : '0.00',
-        criticalHitProbability: criticalHitValues[value] ? ((criticalHitValues[value] / criticalHitTotalCount) * probabilities.criticalHit * 100).toFixed(2) : '0.00',
-        missProbability: missValues[value] ? ((missValues[value] / missTotalCount) * probabilities.miss * 100).toFixed(2) : '0.00'
-      }));
+      .map(value => {
+        const normalHitProb = normalHitValues[value] ? (normalHitValues[value] / normalHitTotalCount) * probabilities.normalHit : 0;
+        const criticalHitProb = criticalHitValues[value] ? (criticalHitValues[value] / criticalHitTotalCount) * probabilities.criticalHit : 0;
+        const missProb = missValues[value] ? (missValues[value] / missTotalCount) * probabilities.miss : 0;
+        const totalProb = normalHitProb + criticalHitProb + missProb;
+        
+        return {
+          value: value,
+          normalHitProb: normalHitProb,
+          criticalHitProb: criticalHitProb,
+          missProb: missProb,
+          totalProb: totalProb,
+          normalHitPercentage: (normalHitProb * 100).toFixed(2),
+          criticalHitPercentage: (criticalHitProb * 100).toFixed(2),
+          missPercentage: (missProb * 100).toFixed(2),
+          totalPercentage: (totalProb * 100).toFixed(2)
+        };
+      });
+
+    const chartData = valueData.map(item => ({
+      value: item.value,
+      // 直接使用概率百分比作为显示值
+      totalCount: parseFloat(item.totalPercentage),
+      normalHitCount: parseFloat(item.normalHitPercentage),
+      criticalHitCount: parseFloat(item.criticalHitPercentage),
+      missCount: parseFloat(item.missPercentage),
+      normalHitProbability: item.normalHitPercentage,
+      criticalHitProbability: item.criticalHitPercentage,
+      missProbability: item.missPercentage,
+      totalProbability: item.totalPercentage
+    }));
 
     // 条件暴击表达式的自定义Tooltip
     const ConditionalCriticalTooltip = ({ active, payload, label }) => {
       if (active && payload && payload.length) {
-        const normalHitData = payload.find(p => p.dataKey === 'normalHitCount');
-        const criticalHitData = payload.find(p => p.dataKey === 'criticalHitCount');
-        const missData = payload.find(p => p.dataKey === 'missCount');
+        const data = payload[0].payload;
+        const totalProbability = parseFloat(data.totalProbability);
         
         return (
           <div className="bg-white p-3 border border-gray-300 rounded-lg shadow-lg">
             <p className="font-semibold">{`结果: ${label}`}</p>
-            {normalHitData && normalHitData.value > 0 && (
-              <>
-                <p className="text-blue-600">{`普通命中: ${normalHitData.value.toFixed(2)}`}</p>
-                <p className="text-blue-500">{`概率: ${normalHitData.payload.normalHitProbability}%`}</p>
-              </>
+            <p className="text-green-600 font-semibold">{`总概率: ${totalProbability.toFixed(2)}%`}</p>
+            {parseFloat(data.normalHitProbability) > 0 && (
+              <p className="text-blue-600">{`普通命中: ${data.normalHitProbability}%`}</p>
             )}
-            {criticalHitData && criticalHitData.value > 0 && (
-              <>
-                <p className="text-red-600">{`暴击命中: ${criticalHitData.value.toFixed(2)}`}</p>
-                <p className="text-red-500">{`概率: ${criticalHitData.payload.criticalHitProbability}%`}</p>
-              </>
+            {parseFloat(data.criticalHitProbability) > 0 && (
+              <p className="text-red-600">{`暴击命中: ${data.criticalHitProbability}%`}</p>
             )}
-            {missData && missData.value > 0 && (
-              <>
-                <p className="text-gray-600">{`失败: ${missData.value.toFixed(2)}`}</p>
-                <p className="text-gray-500">{`概率: ${missData.payload.missProbability}%`}</p>
-              </>
+            {parseFloat(data.missProbability) > 0 && (
+              <p className="text-gray-600">{`失败: ${data.missProbability}%`}</p>
             )}
           </div>
         );
@@ -84,22 +98,25 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
             <Legend />
             <Bar 
               dataKey="normalHitCount" 
+              stackId="a"
               fill="#3b82f6" 
               name="普通命中"
-              radius={[2, 2, 0, 0]}
+              radius={[0, 0, 0, 0]}
               stroke="#1e40af"
               strokeWidth={1}
             />
             <Bar 
               dataKey="criticalHitCount" 
+              stackId="a"
               fill="#ef4444" 
               name="暴击命中"
-              radius={[2, 2, 0, 0]}
+              radius={[0, 0, 0, 0]}
               stroke="#dc2626"
               strokeWidth={1}
             />
             <Bar 
               dataKey="missCount" 
+              stackId="a"
               fill="#6b7280" 
               name="失败"
               radius={[2, 2, 0, 0]}
@@ -214,36 +231,53 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
     const trueTotalCount = Object.values(trueValues).reduce((sum, count) => sum + count, 0);
     const falseTotalCount = Object.values(falseValues).reduce((sum, count) => sum + count, 0);
     
-    const chartData = Array.from(allValues)
+    // 先计算每个值的实际概率
+    const valueData = Array.from(allValues)
       .sort((a, b) => a - b)
-      .map(value => ({
-        value: value,
-        trueCount: (trueValues[value] || 0) * condition.successProbability,
-        falseCount: (falseValues[value] || 0) * condition.failureProbability,
-        trueProbability: trueValues[value] ? ((trueValues[value] / trueTotalCount) * condition.successProbability * 100).toFixed(2) : '0.00',
-        falseProbability: falseValues[value] ? ((falseValues[value] / falseTotalCount) * condition.failureProbability * 100).toFixed(2) : '0.00'
-      }));
+      .map(value => {
+        const trueProbability = trueValues[value] ? (trueValues[value] / trueTotalCount) * condition.successProbability : 0;
+        const falseProbability = falseValues[value] ? (falseValues[value] / falseTotalCount) * condition.failureProbability : 0;
+        const totalProbability = trueProbability + falseProbability;
+        
+        return {
+          value: value,
+          trueProbability: trueProbability,
+          falseProbability: falseProbability,
+          totalProbability: totalProbability,
+          truePercentage: (trueProbability * 100).toFixed(2),
+          falsePercentage: (falseProbability * 100).toFixed(2),
+          totalPercentage: (totalProbability * 100).toFixed(2)
+        };
+      });
+    
+    // 找到最大概率，用作缩放基准
+    const maxProbability = Math.max(...valueData.map(d => d.totalProbability));
+    
+    const chartData = valueData.map(item => ({
+      value: item.value,
+      // 直接使用概率百分比作为显示值，这样Y轴会显示正确的概率
+      totalCount: parseFloat(item.totalPercentage),
+      trueCount: parseFloat(item.truePercentage),
+      falseCount: parseFloat(item.falsePercentage),
+      trueProbability: item.truePercentage,
+      falseProbability: item.falsePercentage,
+      totalProbability: item.totalPercentage
+    }));
 
     // 条件表达式的自定义Tooltip
     const ConditionalTooltip = ({ active, payload, label }) => {
       if (active && payload && payload.length) {
-        const trueData = payload.find(p => p.dataKey === 'trueCount');
-        const falseData = payload.find(p => p.dataKey === 'falseCount');
+        const data = payload[0].payload;
         
         return (
           <div className="bg-white p-3 border border-gray-300 rounded-lg shadow-lg">
             <p className="font-semibold">{`结果: ${label}`}</p>
-            {trueData && trueData.value > 0 && (
-              <>
-                <p className="text-blue-600">{`真值次数: ${trueData.value.toFixed(2)}`}</p>
-                <p className="text-blue-500">{`真值概率: ${trueData.payload.trueProbability}%`}</p>
-              </>
+            <p className="text-green-600 font-semibold">{`概率: ${data.totalProbability}%`}</p>
+            {parseFloat(data.trueProbability) > 0 && (
+              <p className="text-blue-600">{`来自条件为真: ${data.trueProbability}%`}</p>
             )}
-            {falseData && falseData.value > 0 && (
-              <>
-                <p className="text-blue-300">{`假值次数: ${falseData.value.toFixed(2)}`}</p>
-                <p className="text-blue-200">{`假值概率: ${falseData.payload.falseProbability}%`}</p>
-              </>
+            {parseFloat(data.falseProbability) > 0 && (
+              <p className="text-blue-300">{`来自条件为假: ${data.falseProbability}%`}</p>
             )}
           </div>
         );
@@ -273,19 +307,11 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
             <Tooltip content={<ConditionalTooltip />} />
             <Legend />
             <Bar 
-              dataKey="trueCount" 
-              fill="#3b82f6" 
-              name="条件为真"
+              dataKey="totalCount" 
+              fill="#8b5cf6" 
+              name="条件表达式结果"
               radius={[2, 2, 0, 0]}
-              stroke="#1e40af"
-              strokeWidth={1}
-            />
-            <Bar 
-              dataKey="falseCount" 
-              fill="#3b82f680" 
-              name="条件为假"
-              radius={[2, 2, 0, 0]}
-              stroke="#1e40af80"
+              stroke="#7c3aed"
               strokeWidth={1}
             />
           </BarChart>
