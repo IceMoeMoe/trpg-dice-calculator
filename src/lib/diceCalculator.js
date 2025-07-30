@@ -170,6 +170,15 @@ class Lexer {
         identifier += this.input[this.position];
         this.position++;
       }
+    } else if (this.input[this.position] === 'e') {
+      // 特殊处理总和型爆炸骰语法：读取完整的修饰符串（包含波浪号）
+      while (this.position < this.input.length && 
+             (this.isLetter(this.input[this.position]) || 
+              this.isDigit(this.input[this.position]) || 
+              this.input[this.position] === '~')) {
+        identifier += this.input[this.position];
+        this.position++;
+      }
     } else {
       // 正常的标识符读取
       while (this.position < this.input.length && 
@@ -325,17 +334,19 @@ class Lexer {
       }
     }
     
-    // 检查是否是总和型爆炸骰操作 (如 "e10l5" 表示10爆炸，最多5次，计算总和)
+    // 检查是否是总和型爆炸骰操作 (如 "e10l5" 或 "e9~10l2" 表示9~10爆炸，最多2次，计算总和)
     if (identifier.startsWith('e')) {
-      const explodeSumMatch = identifier.match(/^e(\d+)(?:l(\d+))?$/);
+      const explodeSumMatch = identifier.match(/^e(\d+)(?:~(\d+))?(?:l(\d+))?$/);
       if (explodeSumMatch) {
-        const explodeOn = parseInt(explodeSumMatch[1]);
-        const maxExplosions = explodeSumMatch[2] ? parseInt(explodeSumMatch[2]) : 10;
+        const minExplode = parseInt(explodeSumMatch[1]);
+        const maxExplode = explodeSumMatch[2] ? parseInt(explodeSumMatch[2]) : minExplode;
+        const maxExplosions = explodeSumMatch[3] ? parseInt(explodeSumMatch[3]) : 10;
         
         this.tokens.push({ 
           type: 'EXPLODING_SUM', 
           value: { 
-            explodeOn,
+            minExplode,
+            maxExplode,
             maxExplosions 
           }
         });
@@ -414,15 +425,17 @@ class Lexer {
   
   // 辅助方法：从字符串解析总和型爆炸骰部分
   parseExplodingSumFromString(explodingSumStr) {
-    const match = explodingSumStr.match(/^e(\d+)(?:l(\d+))?$/);
+    const match = explodingSumStr.match(/^e(\d+)(?:~(\d+))?(?:l(\d+))?$/);
     if (match) {
-      const explodeOn = parseInt(match[1]);
-      const maxExplosions = match[2] ? parseInt(match[2]) : 10;
+      const minExplode = parseInt(match[1]);
+      const maxExplode = match[2] ? parseInt(match[2]) : minExplode;
+      const maxExplosions = match[3] ? parseInt(match[3]) : 10;
       
       this.tokens.push({ 
         type: 'EXPLODING_SUM', 
         value: { 
-          explodeOn,
+          minExplode,
+          maxExplode,
           maxExplosions 
         }
       });
@@ -885,7 +898,8 @@ class Parser {
         type: 'exploding_sum',
         baseExpression: diceNode,
         diceNode: actualDiceNode,
-        explodeOn: token.value.explodeOn,
+        minExplode: token.value.minExplode,
+        maxExplode: token.value.maxExplode,
         maxExplosions: token.value.maxExplosions
       };
     }
@@ -1275,7 +1289,7 @@ class DiceCalculator {
 
   // 计算总和型爆炸骰操作
   calculateExplodingSum(node) {
-    const { baseExpression, diceNode, explodeOn, maxExplosions } = node;
+    const { baseExpression, diceNode, minExplode, maxExplode, maxExplosions } = node;
     
     // 获取基础表达式的结果分布（可能包含重骰等操作）
     const baseResult = this.evaluate(baseExpression);
@@ -1284,7 +1298,7 @@ class DiceCalculator {
     
     // 计算单个骰子的总和型爆炸结果分布
     const singleDiceExplodingSumOutcomes = this.generateSingleDiceExplodingSumOutcomes(
-      sides, explodeOn, maxExplosions
+      sides, minExplode, maxExplode, maxExplosions
     );
     
     // 如果只有一个骰子，直接返回结果
@@ -1317,7 +1331,7 @@ class DiceCalculator {
   }
 
   // 生成单个骰子的总和型爆炸结果分布
-  generateSingleDiceExplodingSumOutcomes(sides, explodeOn, maxExplosions) {
+  generateSingleDiceExplodingSumOutcomes(sides, minExplode, maxExplode, maxExplosions) {
     const outcomes = {};
     
     // 递归函数计算爆炸结果，返回总和分布
@@ -1327,8 +1341,8 @@ class DiceCalculator {
         const rollProbability = probability / sides;
         const newSum = currentSum + rollValue;
         
-        // 检查是否爆炸
-        const shouldExplode = rollValue === explodeOn && explosionsUsed < maxExplosions;
+        // 检查是否爆炸（在指定范围内）
+        const shouldExplode = rollValue >= minExplode && rollValue <= maxExplode && explosionsUsed < maxExplosions;
         
         if (shouldExplode) {
           // 继续爆炸
