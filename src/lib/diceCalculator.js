@@ -1275,7 +1275,8 @@ class DiceCalculator {
     calculateWithExplosions(0, 0, 1);
     
     // 将概率转换为整数计数
-    const scaleFactor = Math.pow(sides, Math.min(maxExplosions + 2, 6)); // 限制缩放因子以避免数值过大
+    // 对于爆炸骰，需要更大的缩放因子来保持精度
+    const scaleFactor = Math.pow(sides, Math.min(maxExplosions + 2, 10)); // 提高精度限制
     const integerOutcomes = {};
     for (const [successCount, probability] of Object.entries(outcomes)) {
       const count = Math.round(probability * scaleFactor);
@@ -1358,7 +1359,8 @@ class DiceCalculator {
     calculateWithExplosions(0, 0, 1);
     
     // 将概率转换为整数计数
-    const scaleFactor = Math.pow(sides, Math.min(maxExplosions + 2, 6)); // 限制缩放因子以避免数值过大
+    // 对于爆炸骰，需要更大的缩放因子来保持精度
+    const scaleFactor = Math.pow(sides, Math.min(maxExplosions + 2, 10)); // 提高精度限制
     const integerOutcomes = {};
     for (const [sum, probability] of Object.entries(outcomes)) {
       const count = Math.round(probability * scaleFactor);
