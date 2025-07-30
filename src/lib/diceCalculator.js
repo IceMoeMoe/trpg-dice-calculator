@@ -1205,7 +1205,7 @@ class DiceCalculator {
     
     // 获取基础表达式的结果分布（可能包含重骰等操作）
     const baseResult = this.evaluate(baseExpression);
-    const baseDist = baseResult.distribution || baseResult;
+    const baseDist = this.extractDistribution(baseResult);
     const { count, sides } = diceNode;
     
     // 计算单个骰子的爆炸结果分布（包含成功数统计）
@@ -1293,7 +1293,7 @@ class DiceCalculator {
     
     // 获取基础表达式的结果分布（可能包含重骰等操作）
     const baseResult = this.evaluate(baseExpression);
-    const baseDist = baseResult.distribution || baseResult;
+    const baseDist = this.extractDistribution(baseResult);
     const { count, sides } = diceNode;
     
     // 计算单个骰子的总和型爆炸结果分布
@@ -1390,8 +1390,8 @@ class DiceCalculator {
     const result = {};
     
     // 获取真值和假值的分布
-    const trueDist = trueValueResult.combined || trueValueResult.distribution || trueValueResult;
-    const falseDist = falseValueResult.combined || falseValueResult.distribution || falseValueResult;
+    const trueDist = this.extractDistribution(trueValueResult);
+    const falseDist = this.extractDistribution(falseValueResult);
     
     // 计算总计数来规范化概率
     const trueTotal = Object.values(trueDist).reduce((sum, count) => sum + count, 0);
@@ -1593,13 +1593,13 @@ class DiceCalculator {
     const result = {};
     
     // 计算各分布的总计数
-    const normalHitDist = normalHitResult.combined || normalHitResult.distribution || normalHitResult;
+    const normalHitDist = this.extractDistribution(normalHitResult);
     const normalHitTotal = Object.values(normalHitDist).reduce((sum, count) => sum + count, 0);
     
-    const criticalHitDist = criticalHitResult.combined || criticalHitResult.distribution || criticalHitResult;
+    const criticalHitDist = this.extractDistribution(criticalHitResult);
     const criticalHitTotal = Object.values(criticalHitDist).reduce((sum, count) => sum + count, 0);
     
-    const missDist = missResult.combined || missResult.distribution || missResult;
+    const missDist = this.extractDistribution(missResult);
     const missTotal = Object.values(missDist).reduce((sum, count) => sum + count, 0);
     
     // 普通命中的贡献
@@ -1732,18 +1732,38 @@ class DiceCalculator {
     }
     return 0;
   }
+  // 提取分布数据的辅助函数
+  extractDistribution(result) {
+    if (result.combined) {
+      return result.combined;
+    } else if (result.distribution) {
+      return result.distribution;
+    } else if (typeof result === 'object' && !Array.isArray(result)) {
+      // 检查是否已经是简单的分布对象
+      const keys = Object.keys(result);
+      if (keys.length > 0 && keys.every(key => !isNaN(parseFloat(key)))) {
+        return result;
+      }
+    }
+    return result;
+  }
+
   calculateComparison(left, right, operator) {
     const leftResult = this.evaluate(left);
     const rightResult = this.evaluate(right);
+    
+    // 提取实际的分布数据
+    const leftDistribution = this.extractDistribution(leftResult);
+    const rightDistribution = this.extractDistribution(rightResult);
     
     let successCount = 0;
     let totalCount = 0;
     
     // 如果右边是单个数值（不是分布），简化计算
-    if (Object.keys(rightResult).length === 1 && Object.keys(rightResult)[0] !== undefined) {
-      const rightValue = parseInt(Object.keys(rightResult)[0]);
+    if (Object.keys(rightDistribution).length === 1 && Object.keys(rightDistribution)[0] !== undefined) {
+      const rightValue = parseInt(Object.keys(rightDistribution)[0]);
       
-      for (const [leftValue, leftCount] of Object.entries(leftResult)) {
+      for (const [leftValue, leftCount] of Object.entries(leftDistribution)) {
         const leftVal = parseInt(leftValue);
         totalCount += leftCount;
         
@@ -1772,8 +1792,8 @@ class DiceCalculator {
       }
     } else {
       // 完整的分布比较
-      for (const [leftValue, leftCount] of Object.entries(leftResult)) {
-        for (const [rightValue, rightCount] of Object.entries(rightResult)) {
+      for (const [leftValue, leftCount] of Object.entries(leftDistribution)) {
+        for (const [rightValue, rightCount] of Object.entries(rightDistribution)) {
           const leftVal = parseInt(leftValue);
           const rightVal = parseInt(rightValue);
           const combinationCount = leftCount * rightCount;
@@ -1862,8 +1882,8 @@ class DiceCalculator {
       return this.calculateNormalBinaryOp(leftResult.distribution, rightResult.distribution, operator);
     } else {
       // 都是普通数值分布
-      const leftDist = leftResult.distribution || leftResult;
-      const rightDist = rightResult.distribution || rightResult;
+      const leftDist = this.extractDistribution(leftResult);
+      const rightDist = this.extractDistribution(rightResult);
       return this.calculateNormalBinaryOp(leftDist, rightDist, operator);
     }
   }
@@ -1872,11 +1892,12 @@ class DiceCalculator {
   calculateProbabilityOperation(probabilityResult, valueResult, operator, probabilityPosition) {
     if (operator !== '*') {
       // 对于非乘法操作，转换为普通分布计算
-      return this.calculateNormalBinaryOp(probabilityResult.distribution, valueResult, operator);
+      const valueDist = this.extractDistribution(valueResult);
+      return this.calculateNormalBinaryOp(probabilityResult.distribution, valueDist, operator);
     }
     
     // 概率乘法：结果是期望值的分布
-    const valueDist = valueResult.distribution || valueResult;
+    const valueDist = this.extractDistribution(valueResult);
     const result = {};
     
     // 计算期望值分布
@@ -1984,7 +2005,7 @@ class DiceCalculator {
     if (this.isCalculatingCritical) {
       // 暴击时：结果翻倍
       const doubledResult = {};
-      const distribution = result.distribution || result;
+      const distribution = this.extractDistribution(result);
       
       for (const [value, count] of Object.entries(distribution)) {
         const doubledValue = parseFloat(value) * 2;
@@ -2076,8 +2097,8 @@ class DiceCalculator {
     
     // 合并普通分布结果
     const combinedDistribution = {};
-    const normalDist = normalResult.distribution || normalResult;
-    const criticalDist = criticalResult.distribution || criticalResult;
+    const normalDist = this.extractDistribution(normalResult);
+    const criticalDist = this.extractDistribution(criticalResult);
     
     // 计算各分布的总计数
     const normalTotal = Object.values(normalDist).reduce((sum, count) => sum + count, 0);
@@ -2133,8 +2154,8 @@ class DiceCalculator {
   // 处理条件表达式的暴击
   handleConditionalCritical(normalResult, criticalResult, normalProbability, criticalProbability) {
     // 简化处理：直接合并条件结果
-    const normalDist = normalResult.combined || normalResult.distribution || normalResult;
-    const criticalDist = criticalResult.combined || criticalResult.distribution || criticalResult;
+    const normalDist = this.extractDistribution(normalResult);
+    const criticalDist = this.extractDistribution(criticalResult);
     
     const combinedDistribution = {};
     
@@ -2210,7 +2231,7 @@ class DiceCalculator {
       return totalCount > 0 ? totalSum / totalCount : 0;
     }
     
-    const distribution = result.distribution || result;
+    const distribution = this.extractDistribution(result);
     let totalSum = 0;
     let totalCount = 0;
     
@@ -2282,7 +2303,7 @@ class DiceCalculator {
             nestedConditions: result.nestedConditions || []
           };
         } else {
-          const distribution = result.distribution || result;
+          const distribution = this.extractDistribution(result);
           const totalOutcomes = Object.values(distribution).reduce((sum, count) => sum + count, 0);
           
           return {
