@@ -188,7 +188,11 @@ function App() {
                 </div>
                 <div className="flex items-start gap-2">
                   <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">+, -, *, /</code>
-                  <span>基本运算符和括号支持</span>
+                  <span>基本运算符和括号</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">表达式rX~YeZ</code>
+                  <span>重骰掷骰中结果为X~Y的值，限制次数为Z，如 <code className="text-orange-600">4d6r1~2e1</code></span>
                 </div>
                 <div className="flex items-start gap-2">
                   <code className="bg-orange-100 px-2 py-1 rounded text-orange-800 font-mono whitespace-nowrap">#表达式#</code>
@@ -201,10 +205,6 @@ function App() {
                 <div className="flex items-start gap-2">
                   <code className="bg-orange-100 px-2 py-1 rounded text-orange-800 font-mono whitespace-nowrap">[表达式]</code>
                   <span>仅暴击时生效，如 <code className="text-orange-600">[1d6+3]</code></span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">表达式rX~YeZ</code>
-                  <span>重骰掷骰中结果为X~Y的值，限制次数为Z<code className="text-orange-600">4d6r1~2e1</code></span>
                 </div>
                 <div className="flex items-start gap-2">
                   <code className="bg-green-100 px-2 py-1 rounded text-green-800 font-mono whitespace-nowrap">NdMsX~YxZlW</code>
