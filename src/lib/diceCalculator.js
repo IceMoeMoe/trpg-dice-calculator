@@ -224,6 +224,28 @@ class Lexer {
       }
     }
     
+    // 智能解析掷骰+总和型爆炸骰（如 3d10e10l5）
+    if (identifier.includes('d') && identifier.includes('e') && !identifier.includes('r')) {
+      const diceMatch = identifier.match(/^(\d*)d(\d+)(.*)$/);
+      if (diceMatch) {
+        const count = diceMatch[1] ? parseInt(diceMatch[1]) : 1;
+        const sides = parseInt(diceMatch[2]);
+        const remaining = diceMatch[3];
+        
+        // 添加掷骰token
+        this.tokens.push({ 
+          type: 'DICE', 
+          value: { count, sides }
+        });
+        
+        // 处理剩余的总和型爆炸骰部分
+        if (remaining) {
+          this.parseExplodingSumFromString(remaining);
+        }
+        return;
+      }
+    }
+    
     // 检查是否是掷骰表达式 (如 "2d6" 或 "d20")
     if (identifier.includes('d') && !identifier.includes('r')) {
       const parts = identifier.split('d');
@@ -303,6 +325,24 @@ class Lexer {
       }
     }
     
+    // 检查是否是总和型爆炸骰操作 (如 "e10l5" 表示10爆炸，最多5次，计算总和)
+    if (identifier.startsWith('e')) {
+      const explodeSumMatch = identifier.match(/^e(\d+)(?:l(\d+))?$/);
+      if (explodeSumMatch) {
+        const explodeOn = parseInt(explodeSumMatch[1]);
+        const maxExplosions = explodeSumMatch[2] ? parseInt(explodeSumMatch[2]) : 10;
+        
+        this.tokens.push({ 
+          type: 'EXPLODING_SUM', 
+          value: { 
+            explodeOn,
+            maxExplosions 
+          }
+        });
+        return;
+      }
+    }
+    
     // 检查是否是单独的 'r' 字符
     if (identifier === 'r') {
       this.tokens.push({ type: 'R', value: 'r' });
@@ -369,6 +409,25 @@ class Lexer {
       });
     } else {
       throw new Error(`无法解析爆炸骰字符串: ${explodingStr}`);
+    }
+  }
+  
+  // 辅助方法：从字符串解析总和型爆炸骰部分
+  parseExplodingSumFromString(explodingSumStr) {
+    const match = explodingSumStr.match(/^e(\d+)(?:l(\d+))?$/);
+    if (match) {
+      const explodeOn = parseInt(match[1]);
+      const maxExplosions = match[2] ? parseInt(match[2]) : 10;
+      
+      this.tokens.push({ 
+        type: 'EXPLODING_SUM', 
+        value: { 
+          explodeOn,
+          maxExplosions 
+        }
+      });
+    } else {
+      throw new Error(`无法解析总和型爆炸骰字符串: ${explodingSumStr}`);
     }
   }
 }
@@ -501,6 +560,11 @@ class Parser {
     // 检查是否有爆炸骰操作
     if (this.currentToken().type === 'EXPLODING') {
       return this.parseExploding(diceNode);
+    }
+    
+    // 检查是否有总和型爆炸骰操作
+    if (this.currentToken().type === 'EXPLODING_SUM') {
+      return this.parseExplodingSum(diceNode);
     }
     
     return diceNode;
@@ -783,6 +847,44 @@ class Parser {
         diceNode: actualDiceNode,
         minSuccess: token.value.minSuccess,
         maxSuccess: token.value.maxSuccess,
+        explodeOn: token.value.explodeOn,
+        maxExplosions: token.value.maxExplosions
+      };
+    }
+    
+    return diceNode;
+  }
+  
+  parseExplodingSum(diceNode) {
+    const token = this.currentToken();
+    
+    if (token.type === 'EXPLODING_SUM') {
+      this.advance();
+      
+      // 查找实际的骰子节点
+      const findDiceNode = (node) => {
+        if (node.type === 'dice') {
+          return node;
+        } else if (node.type === 'reroll') {
+          return findDiceNode(node.dice);
+        } else if (node.type === 'binary_op') {
+          const leftDice = findDiceNode(node.left);
+          if (leftDice) return leftDice;
+          const rightDice = findDiceNode(node.right);
+          if (rightDice) return rightDice;
+        }
+        return null;
+      };
+      
+      const actualDiceNode = findDiceNode(diceNode);
+      if (!actualDiceNode) {
+        throw new Error('总和型爆炸骰操作只能应用于包含掷骰的表达式');
+      }
+      
+      return {
+        type: 'exploding_sum',
+        baseExpression: diceNode,
+        diceNode: actualDiceNode,
         explodeOn: token.value.explodeOn,
         maxExplosions: token.value.maxExplosions
       };
@@ -1165,6 +1267,89 @@ class DiceCalculator {
       const count = Math.round(probability * scaleFactor);
       if (count > 0) {
         integerOutcomes[successCount] = count;
+      }
+    }
+    
+    return integerOutcomes;
+  }
+
+  // 计算总和型爆炸骰操作
+  calculateExplodingSum(node) {
+    const { baseExpression, diceNode, explodeOn, maxExplosions } = node;
+    
+    // 获取基础表达式的结果分布（可能包含重骰等操作）
+    const baseResult = this.evaluate(baseExpression);
+    const baseDist = baseResult.distribution || baseResult;
+    const { count, sides } = diceNode;
+    
+    // 计算单个骰子的总和型爆炸结果分布
+    const singleDiceExplodingSumOutcomes = this.generateSingleDiceExplodingSumOutcomes(
+      sides, explodeOn, maxExplosions
+    );
+    
+    // 如果只有一个骰子，直接返回结果
+    if (count === 1) {
+      return singleDiceExplodingSumOutcomes;
+    }
+    
+    // 多个骰子的情况：组合所有骰子的总和
+    const result = {};
+    
+    function combineMultipleDice(diceCount, singleOutcomes, currentResult = { 0: 1 }) {
+      if (diceCount === 0) return currentResult;
+      
+      const newResult = {};
+      
+      for (const [currentSum, currentCount] of Object.entries(currentResult)) {
+        const sum = parseInt(currentSum);
+        
+        for (const [diceSum, diceCount] of Object.entries(singleOutcomes)) {
+          const newSum = sum + parseInt(diceSum);
+          const newCount = currentCount * diceCount;
+          newResult[newSum] = (newResult[newSum] || 0) + newCount;
+        }
+      }
+      
+      return combineMultipleDice(diceCount - 1, singleOutcomes, newResult);
+    }
+    
+    return combineMultipleDice(count, singleDiceExplodingSumOutcomes);
+  }
+
+  // 生成单个骰子的总和型爆炸结果分布
+  generateSingleDiceExplodingSumOutcomes(sides, explodeOn, maxExplosions) {
+    const outcomes = {};
+    
+    // 递归函数计算爆炸结果，返回总和分布
+    function calculateWithExplosions(currentSum, explosionsUsed, probability) {
+      // 投掷一个骰子
+      for (let rollValue = 1; rollValue <= sides; rollValue++) {
+        const rollProbability = probability / sides;
+        const newSum = currentSum + rollValue;
+        
+        // 检查是否爆炸
+        const shouldExplode = rollValue === explodeOn && explosionsUsed < maxExplosions;
+        
+        if (shouldExplode) {
+          // 继续爆炸
+          calculateWithExplosions(newSum, explosionsUsed + 1, rollProbability);
+        } else {
+          // 停止，记录最终总和
+          outcomes[newSum] = (outcomes[newSum] || 0) + rollProbability;
+        }
+      }
+    }
+    
+    // 开始计算，初始总和为0
+    calculateWithExplosions(0, 0, 1);
+    
+    // 将概率转换为整数计数
+    const scaleFactor = Math.pow(sides, Math.min(maxExplosions + 2, 6)); // 限制缩放因子以避免数值过大
+    const integerOutcomes = {};
+    for (const [sum, probability] of Object.entries(outcomes)) {
+      const count = Math.round(probability * scaleFactor);
+      if (count > 0) {
+        integerOutcomes[sum] = count;
       }
     }
     
@@ -1751,6 +1936,9 @@ class DiceCalculator {
         
       case 'exploding':
         return this.calculateExploding(node);
+        
+      case 'exploding_sum':
+        return this.calculateExplodingSum(node);
         
       case 'comparison':
         return this.calculateComparison(node.left, node.right, node.operator);
