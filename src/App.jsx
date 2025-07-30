@@ -183,14 +183,6 @@ function App() {
                   <span>条件重骰表达式，用于在数值区间重骰，如<code className="text-blue-600">d4r1~2e1</code>，其中e后面的1为重骰限制次数</span>
                 </div>
                 <div className="flex items-start gap-2">
-                  <code className="bg-green-100 px-2 py-1 rounded text-green-800 font-mono whitespace-nowrap">NdMsX~YxZlW</code>
-                  <span>爆炸骰成功计数，如 <code className="text-green-600">5d10s8~10x10l10</code>。s=成功范围(8~10)，x=爆炸值(10)，l=爆炸限制(10次)</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <code className="bg-purple-100 px-2 py-1 rounded text-purple-800 font-mono whitespace-nowrap">NdMeXlY</code>
-                  <span>总和型爆炸骰，如 <code className="text-purple-600">3d10e10l5</code>。e=爆炸值(10)，l=爆炸限制(5次)，显示总和</span>
-                </div>
-                <div className="flex items-start gap-2">
                   <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">+, -, *, /</code>
                   <span>基本运算符和括号支持</span>
                 </div>
@@ -208,6 +200,14 @@ function App() {
                 </div>
                 <div>
                   <span>支持重骰，如 <code className="text-orange-600">kl(4d6r1~2e1)</code></span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <code className="bg-green-100 px-2 py-1 rounded text-green-800 font-mono whitespace-nowrap">NdMsX~YxZlW</code>
+                  <span>爆炸骰成功计数，如 <code className="text-green-600">5d10s8~10x10l10</code>。s=成功范围(8~10)，x=爆炸值(10)，l=爆炸限制(10次)</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <code className="bg-purple-100 px-2 py-1 rounded text-purple-800 font-mono whitespace-nowrap">NdMeXlY</code>
+                  <span>总和型爆炸骰，如 <code className="text-purple-600">3d10e10l5</code>。e=爆炸值(10)，l=爆炸限制(5次)，显示总和</span>
                 </div>
               </div>
             </CardContent>
