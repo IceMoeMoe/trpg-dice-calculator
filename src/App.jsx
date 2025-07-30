@@ -213,11 +213,11 @@ function App() {
                 </div>
                 <div className="flex items-start gap-2">
                   <code className="bg-green-100 px-2 py-1 rounded text-green-800 font-mono whitespace-nowrap">NdMsX~YxZ~WlT</code>
-                  <span>爆炸骰成功计数，如 <code className="text-green-600">5d10s8~10x9~10l10</code>。s=成功范围(8~10)，x=爆炸范围(9~10)，l=爆炸限制(10次)，显示成功次数</span>
+                  <span>爆炸骰成功计数，如 <code className="text-green-600">5d10s8~10x9~10l10</code>。s=成功范围(8~10)，x=爆炸范围(9~10)，l=爆炸限制(10次)，返回成功次数</span>
                 </div>
                 <div className="flex items-start gap-2">
                   <code className="bg-green-100 px-2 py-1 rounded text-green-800 font-mono whitespace-nowrap">NdMeX~YlZ</code>
-                  <span>总和型爆炸骰，如 <code className="text-green-600">3d10e9~10l5</code>。e=爆炸范围(9~10)，l=爆炸限制(5次)，显示总和</span>
+                  <span>总和型爆炸骰，如 <code className="text-green-600">3d10e9~10l5</code>。e=爆炸范围(9~10)，l=爆炸限制(5次)，返回总和</span>
                 </div>
               </div>
             </CardContent>
