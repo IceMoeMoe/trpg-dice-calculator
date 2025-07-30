@@ -194,7 +194,7 @@ const FormulaInput = ({ onCalculate, isCalculating }) => {
               onChange={(e) => setFormula(e.target.value)}
               placeholder={criticalEnabled ? 
                 "输入掷骰公式，支持暴击: #2d6#, |1d8|1d10|, [1d6+3]" : 
-                "输入掷骰公式，例如: 2d6, kh(2d20), kl(1d8;1d10), kl(4d6r1~2e1)"
+                "输入掷骰公式，例如: 2d6, kh(2d20), kl(1d8;1d10), 1d10s8~10x9~10l5"
               }
               className="flex-1 h-12 text-base"
               disabled={isCalculating}

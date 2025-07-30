@@ -312,21 +312,23 @@ class Lexer {
       }
     }
     
-    // 检查是否是爆炸骰操作 (如 "s8~10x10l5" 表示8~10成功，10爆炸，最多5次)
+    // 检查是否是爆炸骰操作 (如 "s8~10x9~10l5" 表示8~10成功，9~10爆炸，最多5次)
     if (identifier.startsWith('s')) {
-      const explodeMatch = identifier.match(/^s(\d+)(?:~(\d+))?(?:x(\d+))?(?:l(\d+))?$/);
+      const explodeMatch = identifier.match(/^s(\d+)(?:~(\d+))?(?:x(\d+)(?:~(\d+))?)?(?:l(\d+))?$/);
       if (explodeMatch) {
         const minSuccess = parseInt(explodeMatch[1]);
         const maxSuccess = explodeMatch[2] ? parseInt(explodeMatch[2]) : minSuccess;
-        const explodeOn = explodeMatch[3] ? parseInt(explodeMatch[3]) : null;
-        const maxExplosions = explodeMatch[4] ? parseInt(explodeMatch[4]) : 10;
+        const minExplode = explodeMatch[3] ? parseInt(explodeMatch[3]) : null;
+        const maxExplode = explodeMatch[4] ? parseInt(explodeMatch[4]) : minExplode;
+        const maxExplosions = explodeMatch[5] ? parseInt(explodeMatch[5]) : 10;
         
         this.tokens.push({ 
           type: 'EXPLODING', 
           value: { 
             minSuccess, 
             maxSuccess, 
-            explodeOn,
+            minExplode,
+            maxExplode,
             maxExplosions 
           }
         });
@@ -402,19 +404,21 @@ class Lexer {
   
   // 辅助方法：从字符串解析爆炸骰部分
   parseExplodingFromString(explodingStr) {
-    const match = explodingStr.match(/^s(\d+)(?:~(\d+))?(?:x(\d+))?(?:l(\d+))?$/);
+    const match = explodingStr.match(/^s(\d+)(?:~(\d+))?(?:x(\d+)(?:~(\d+))?)?(?:l(\d+))?$/);
     if (match) {
       const minSuccess = parseInt(match[1]);
       const maxSuccess = match[2] ? parseInt(match[2]) : minSuccess;
-      const explodeOn = match[3] ? parseInt(match[3]) : null;
-      const maxExplosions = match[4] ? parseInt(match[4]) : 10;
+      const minExplode = match[3] ? parseInt(match[3]) : null;
+      const maxExplode = match[4] ? parseInt(match[4]) : minExplode; // 如果没有范围，使用单个值
+      const maxExplosions = match[5] ? parseInt(match[5]) : 10;
       
       this.tokens.push({ 
         type: 'EXPLODING', 
         value: { 
           minSuccess, 
           maxSuccess, 
-          explodeOn,
+          minExplode,
+          maxExplode,
           maxExplosions 
         }
       });
@@ -860,7 +864,8 @@ class Parser {
         diceNode: actualDiceNode,
         minSuccess: token.value.minSuccess,
         maxSuccess: token.value.maxSuccess,
-        explodeOn: token.value.explodeOn,
+        minExplode: token.value.minExplode,
+        maxExplode: token.value.maxExplode,
         maxExplosions: token.value.maxExplosions
       };
     }
@@ -1201,7 +1206,7 @@ class DiceCalculator {
 
   // 计算爆炸骰操作 (成功计数型)
   calculateExploding(node) {
-    const { baseExpression, diceNode, minSuccess, maxSuccess, explodeOn, maxExplosions } = node;
+    const { baseExpression, diceNode, minSuccess, maxSuccess, minExplode, maxExplode, maxExplosions } = node;
     
     // 获取基础表达式的结果分布（可能包含重骰等操作）
     const baseResult = this.evaluate(baseExpression);
@@ -1210,7 +1215,7 @@ class DiceCalculator {
     
     // 计算单个骰子的爆炸结果分布（包含成功数统计）
     const singleDiceExplodingOutcomes = this.generateSingleDiceExplodingOutcomes(
-      sides, minSuccess, maxSuccess, explodeOn, maxExplosions
+      sides, minSuccess, maxSuccess, minExplode, maxExplode, maxExplosions
     );
     
     // 如果只有一个骰子，直接返回结果
@@ -1243,7 +1248,7 @@ class DiceCalculator {
   }
 
   // 生成单个骰子的爆炸结果分布（成功计数）
-  generateSingleDiceExplodingOutcomes(sides, minSuccess, maxSuccess, explodeOn, maxExplosions) {
+  generateSingleDiceExplodingOutcomes(sides, minSuccess, maxSuccess, minExplode, maxExplode, maxExplosions) {
     const outcomes = {};
     
     // 递归函数计算爆炸结果，返回成功数分布
@@ -1258,8 +1263,15 @@ class DiceCalculator {
           successes += 1;
         }
         
-        // 检查是否爆炸
-        const shouldExplode = explodeOn && rollValue === explodeOn && explosionsUsed < maxExplosions;
+        // 检查是否爆炸（支持范围爆炸或单值爆炸）
+        let shouldExplode = false;
+        if (minExplode !== null && maxExplode !== null) {
+          // 范围爆炸
+          shouldExplode = rollValue >= minExplode && rollValue <= maxExplode && explosionsUsed < maxExplosions;
+        } else if (minExplode !== null) {
+          // 单值爆炸（兼容旧版本）
+          shouldExplode = rollValue === minExplode && explosionsUsed < maxExplosions;
+        }
         
         if (shouldExplode) {
           // 继续爆炸

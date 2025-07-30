@@ -138,7 +138,7 @@ function App() {
                 </div>
                 <div className="flex justify-between items-center p-2 bg-green-50 rounded text-sm">
                   <span className="font-medium text-green-700">爆炸骰成功计数</span>
-                  <code className="text-green-600 font-mono">5d10s8~10x10l10</code>
+                  <code className="text-green-600 font-mono">5d10s8~10x9~10l10</code>
                 </div>
                 <div className="flex justify-between items-center p-2 bg-green-50 rounded text-sm">
                   <span className="font-medium text-green-700">简单爆炸骰</span>
@@ -212,8 +212,8 @@ function App() {
                   <span>仅暴击时生效，如 <code className="text-orange-600">[1d6+3]</code></span>
                 </div>
                 <div className="flex items-start gap-2">
-                  <code className="bg-green-100 px-2 py-1 rounded text-green-800 font-mono whitespace-nowrap">NdMsX~YxZlW</code>
-                  <span>爆炸骰成功计数，如 <code className="text-green-600">5d10s8~10x10l10</code>。s=成功范围(8~10)，x=爆炸值(10)，l=爆炸限制(10次)</span>
+                  <code className="bg-green-100 px-2 py-1 rounded text-green-800 font-mono whitespace-nowrap">NdMsX~YxZ~WlT</code>
+                  <span>爆炸骰成功计数，如 <code className="text-green-600">5d10s8~10x9~10l10</code>。s=成功范围(8~10)，x=爆炸范围(9~10)，l=爆炸限制(10次)</span>
                 </div>
                 <div className="flex items-start gap-2">
                   <code className="bg-green-100 px-2 py-1 rounded text-green-800 font-mono whitespace-nowrap">NdMeX~YlZ</code>
