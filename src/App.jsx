@@ -132,6 +132,14 @@ function App() {
                   <span className="font-medium text-orange-700">复合暴击攻击</span>
                   <code className="text-orange-600 font-mono">d20&gt;11?#|1d8|1d10|#+3:0</code>
                 </div>
+                <div className="flex justify-between items-center p-2 bg-green-50 rounded text-sm">
+                  <span className="font-medium text-green-700">爆炸骰成功计数</span>
+                  <code className="text-green-600 font-mono">5d10s8~10x10l10</code>
+                </div>
+                <div className="flex justify-between items-center p-2 bg-green-50 rounded text-sm">
+                  <span className="font-medium text-green-700">简单爆炸骰</span>
+                  <code className="text-green-600 font-mono">3d10s8x10l5</code>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -173,6 +181,10 @@ function App() {
                 <div className="flex items-start gap-2">
                   <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">表达式rX~YeZ</code>
                   <span>条件重骰表达式，用于在数值区间重骰，如<code className="text-blue-600">d4r1~2e1</code>，其中e后面的1为重骰限制次数</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <code className="bg-green-100 px-2 py-1 rounded text-green-800 font-mono whitespace-nowrap">NdMsX~YxZlW</code>
+                  <span>爆炸骰成功计数，如 <code className="text-green-600">5d10s8~10x10l10</code>。s=成功范围(8~10)，x=爆炸值(10)，l=爆炸限制(10次)</span>
                 </div>
                 <div className="flex items-start gap-2">
                   <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">+, -, *, /</code>

@@ -161,6 +161,15 @@ class Lexer {
         identifier += this.input[this.position];
         this.position++;
       }
+    } else if (this.input[this.position] === 's') {
+      // 特殊处理爆炸骰语法：读取完整的修饰符串
+      while (this.position < this.input.length && 
+             (this.isLetter(this.input[this.position]) || 
+              this.isDigit(this.input[this.position]) || 
+              this.input[this.position] === '~')) {
+        identifier += this.input[this.position];
+        this.position++;
+      }
     } else {
       // 正常的标识符读取
       while (this.position < this.input.length && 
@@ -170,7 +179,7 @@ class Lexer {
       }
     }
     
-    // 智能解析复杂标识符（如 d6r1, d6r1~2e1 等）
+    // 智能解析复杂标识符（如 d6r1, d6r1~2e1, 3d10s8x10l5 等）
     if (identifier.includes('d') && identifier.includes('r')) {
       // 尝试拆分掷骰和重骰部分
       const diceMatch = identifier.match(/^(\d*)d(\d+)(.*)$/);
@@ -188,6 +197,28 @@ class Lexer {
         // 处理剩余的重骰部分
         if (remaining) {
           this.parseRerollFromString(remaining);
+        }
+        return;
+      }
+    }
+    
+    // 智能解析掷骰+爆炸骰（如 3d10s8~10x10l5）
+    if (identifier.includes('d') && identifier.includes('s')) {
+      const diceMatch = identifier.match(/^(\d*)d(\d+)(.*)$/);
+      if (diceMatch) {
+        const count = diceMatch[1] ? parseInt(diceMatch[1]) : 1;
+        const sides = parseInt(diceMatch[2]);
+        const remaining = diceMatch[3];
+        
+        // 添加掷骰token
+        this.tokens.push({ 
+          type: 'DICE', 
+          value: { count, sides }
+        });
+        
+        // 处理剩余的爆炸骰部分
+        if (remaining) {
+          this.parseExplodingFromString(remaining);
         }
         return;
       }
@@ -250,6 +281,28 @@ class Lexer {
       }
     }
     
+    // 检查是否是爆炸骰操作 (如 "s8~10x10l5" 表示8~10成功，10爆炸，最多5次)
+    if (identifier.startsWith('s')) {
+      const explodeMatch = identifier.match(/^s(\d+)(?:~(\d+))?(?:x(\d+))?(?:l(\d+))?$/);
+      if (explodeMatch) {
+        const minSuccess = parseInt(explodeMatch[1]);
+        const maxSuccess = explodeMatch[2] ? parseInt(explodeMatch[2]) : minSuccess;
+        const explodeOn = explodeMatch[3] ? parseInt(explodeMatch[3]) : null;
+        const maxExplosions = explodeMatch[4] ? parseInt(explodeMatch[4]) : 10;
+        
+        this.tokens.push({ 
+          type: 'EXPLODING', 
+          value: { 
+            minSuccess, 
+            maxSuccess, 
+            explodeOn,
+            maxExplosions 
+          }
+        });
+        return;
+      }
+    }
+    
     // 检查是否是单独的 'r' 字符
     if (identifier === 'r') {
       this.tokens.push({ type: 'R', value: 'r' });
@@ -293,6 +346,29 @@ class Lexer {
       });
     } else {
       throw new Error(`无法解析重骰字符串: ${rerollStr}`);
+    }
+  }
+  
+  // 辅助方法：从字符串解析爆炸骰部分
+  parseExplodingFromString(explodingStr) {
+    const match = explodingStr.match(/^s(\d+)(?:~(\d+))?(?:x(\d+))?(?:l(\d+))?$/);
+    if (match) {
+      const minSuccess = parseInt(match[1]);
+      const maxSuccess = match[2] ? parseInt(match[2]) : minSuccess;
+      const explodeOn = match[3] ? parseInt(match[3]) : null;
+      const maxExplosions = match[4] ? parseInt(match[4]) : 10;
+      
+      this.tokens.push({ 
+        type: 'EXPLODING', 
+        value: { 
+          minSuccess, 
+          maxSuccess, 
+          explodeOn,
+          maxExplosions 
+        }
+      });
+    } else {
+      throw new Error(`无法解析爆炸骰字符串: ${explodingStr}`);
     }
   }
 }
@@ -419,7 +495,12 @@ class Parser {
     
     // 检查是否有重骰操作
     if (this.currentToken().type === 'REROLL' || this.currentToken().type === 'R') {
-      return this.parseReroll(diceNode);
+      diceNode = this.parseReroll(diceNode);
+    }
+    
+    // 检查是否有爆炸骰操作
+    if (this.currentToken().type === 'EXPLODING') {
+      return this.parseExploding(diceNode);
     }
     
     return diceNode;
@@ -664,6 +745,46 @@ class Parser {
         minValue,
         maxValue,
         maxRerolls
+      };
+    }
+    
+    return diceNode;
+  }
+  
+  parseExploding(diceNode) {
+    const token = this.currentToken();
+    
+    if (token.type === 'EXPLODING') {
+      this.advance();
+      
+      // 查找实际的骰子节点
+      const findDiceNode = (node) => {
+        if (node.type === 'dice') {
+          return node;
+        } else if (node.type === 'reroll') {
+          return findDiceNode(node.dice);
+        } else if (node.type === 'binary_op') {
+          const leftDice = findDiceNode(node.left);
+          if (leftDice) return leftDice;
+          const rightDice = findDiceNode(node.right);
+          if (rightDice) return rightDice;
+        }
+        return null;
+      };
+      
+      const actualDiceNode = findDiceNode(diceNode);
+      if (!actualDiceNode) {
+        throw new Error('爆炸骰操作只能应用于包含掷骰的表达式');
+      }
+      
+      return {
+        type: 'exploding',
+        baseExpression: diceNode,
+        diceNode: actualDiceNode,
+        minSuccess: token.value.minSuccess,
+        maxSuccess: token.value.maxSuccess,
+        explodeOn: token.value.explodeOn,
+        maxExplosions: token.value.maxExplosions
       };
     }
     
@@ -960,6 +1081,94 @@ class DiceCalculator {
     }
     
     return combineMultipleDice(count, singleDiceOutcomes);
+  }
+
+  // 计算爆炸骰操作 (成功计数型)
+  calculateExploding(node) {
+    const { baseExpression, diceNode, minSuccess, maxSuccess, explodeOn, maxExplosions } = node;
+    
+    // 获取基础表达式的结果分布（可能包含重骰等操作）
+    const baseResult = this.evaluate(baseExpression);
+    const baseDist = baseResult.distribution || baseResult;
+    const { count, sides } = diceNode;
+    
+    // 计算单个骰子的爆炸结果分布（包含成功数统计）
+    const singleDiceExplodingOutcomes = this.generateSingleDiceExplodingOutcomes(
+      sides, minSuccess, maxSuccess, explodeOn, maxExplosions
+    );
+    
+    // 如果只有一个骰子，直接返回结果
+    if (count === 1) {
+      return singleDiceExplodingOutcomes;
+    }
+    
+    // 多个骰子的情况：组合所有骰子的成功数
+    const result = {};
+    
+    function combineMultipleDice(diceCount, singleOutcomes, currentResult = { 0: 1 }) {
+      if (diceCount === 0) return currentResult;
+      
+      const newResult = {};
+      
+      for (const [currentSuccesses, currentCount] of Object.entries(currentResult)) {
+        const successes = parseInt(currentSuccesses);
+        
+        for (const [diceSuccesses, diceCount] of Object.entries(singleOutcomes)) {
+          const newSuccesses = successes + parseInt(diceSuccesses);
+          const newCount = currentCount * diceCount;
+          newResult[newSuccesses] = (newResult[newSuccesses] || 0) + newCount;
+        }
+      }
+      
+      return combineMultipleDice(diceCount - 1, singleOutcomes, newResult);
+    }
+    
+    return combineMultipleDice(count, singleDiceExplodingOutcomes);
+  }
+
+  // 生成单个骰子的爆炸结果分布（成功计数）
+  generateSingleDiceExplodingOutcomes(sides, minSuccess, maxSuccess, explodeOn, maxExplosions) {
+    const outcomes = {};
+    
+    // 递归函数计算爆炸结果，返回成功数分布
+    function calculateWithExplosions(currentSuccesses, explosionsUsed, probability) {
+      // 投掷一个骰子
+      for (let rollValue = 1; rollValue <= sides; rollValue++) {
+        const rollProbability = probability / sides;
+        let successes = currentSuccesses;
+        
+        // 检查是否成功
+        if (rollValue >= minSuccess && rollValue <= maxSuccess) {
+          successes += 1;
+        }
+        
+        // 检查是否爆炸
+        const shouldExplode = explodeOn && rollValue === explodeOn && explosionsUsed < maxExplosions;
+        
+        if (shouldExplode) {
+          // 继续爆炸
+          calculateWithExplosions(successes, explosionsUsed + 1, rollProbability);
+        } else {
+          // 停止，记录最终成功数
+          outcomes[successes] = (outcomes[successes] || 0) + rollProbability;
+        }
+      }
+    }
+    
+    // 开始计算，初始成功数为0
+    calculateWithExplosions(0, 0, 1);
+    
+    // 将概率转换为整数计数
+    const scaleFactor = Math.pow(sides, Math.min(maxExplosions + 2, 6)); // 限制缩放因子以避免数值过大
+    const integerOutcomes = {};
+    for (const [successCount, probability] of Object.entries(outcomes)) {
+      const count = Math.round(probability * scaleFactor);
+      if (count > 0) {
+        integerOutcomes[successCount] = count;
+      }
+    }
+    
+    return integerOutcomes;
   }
 
   // 计算条件表达式
@@ -1539,6 +1748,9 @@ class DiceCalculator {
         
       case 'reroll':
         return this.calculateReroll(node.dice, node.minValue, node.maxValue, node.maxRerolls);
+        
+      case 'exploding':
+        return this.calculateExploding(node);
         
       case 'comparison':
         return this.calculateComparison(node.left, node.right, node.operator);
