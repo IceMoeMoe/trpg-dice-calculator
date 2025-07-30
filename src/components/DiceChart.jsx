@@ -10,14 +10,32 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
       ...Object.keys(missValues).map(v => parseFloat(v))
     ]);
     
+    // 只对非零值创建连续范围，零值单独处理
+    const nonZeroValues = Array.from(allValues).filter(v => v !== 0);
+    const zeroExists = allValues.has(0);
+    
+    let continuousValues = [];
+    
+    if (nonZeroValues.length > 0) {
+      const minValue = Math.min(...nonZeroValues);
+      const maxValue = Math.max(...nonZeroValues);
+      for (let i = minValue; i <= maxValue; i++) {
+        continuousValues.push(i);
+      }
+    }
+    
+    // 如果存在零值，将其添加到开头
+    if (zeroExists) {
+      continuousValues = [0, ...continuousValues];
+    }
+    
     // 计算总的各种情况出现次数
     const normalHitTotalCount = Object.values(normalHitValues).reduce((sum, count) => sum + count, 0);
     const criticalHitTotalCount = Object.values(criticalHitValues).reduce((sum, count) => sum + count, 0);
     const missTotalCount = Object.values(missValues).reduce((sum, count) => sum + count, 0);
     
     // 先计算每个值的实际概率
-    const valueData = Array.from(allValues)
-      .sort((a, b) => a - b)
+    const valueData = continuousValues
       .map(value => {
         const normalHitProb = normalHitValues[value] ? (normalHitValues[value] / normalHitTotalCount) * probabilities.normalHit : 0;
         const criticalHitProb = criticalHitValues[value] ? (criticalHitValues[value] / criticalHitTotalCount) * probabilities.criticalHit : 0;
@@ -92,6 +110,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
               dataKey="value" 
               type="category"
               interval={0}
+              tick={{ fontSize: 12 }}
             />
             <YAxis />
             <Tooltip content={<ConditionalCriticalTooltip />} />
