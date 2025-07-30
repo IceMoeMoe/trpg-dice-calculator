@@ -155,12 +155,30 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
       ...Object.keys(criticalDistribution).map(v => parseFloat(v))
     ]);
     
+    // 只对非零值创建连续范围，零值单独处理
+    const nonZeroValues = Array.from(allValues).filter(v => v !== 0);
+    const zeroExists = allValues.has(0);
+    
+    let continuousValues = [];
+    
+    if (nonZeroValues.length > 0) {
+      const minValue = Math.min(...nonZeroValues);
+      const maxValue = Math.max(...nonZeroValues);
+      for (let i = minValue; i <= maxValue; i++) {
+        continuousValues.push(i);
+      }
+    }
+    
+    // 如果存在零值，将其添加到开头
+    if (zeroExists) {
+      continuousValues = [0, ...continuousValues];
+    }
+    
     // 计算总的普通和暴击出现次数
     const normalTotalCount = Object.values(normalDistribution).reduce((sum, count) => sum + count, 0);
     const criticalTotalCount = Object.values(criticalDistribution).reduce((sum, count) => sum + count, 0);
     
-    const chartData = Array.from(allValues)
-      .sort((a, b) => a - b)
+    const chartData = continuousValues
       .map(value => ({
         value: value,
         normalCount: (normalDistribution[value] || 0) * normalProbability,
@@ -246,13 +264,31 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
       ...Object.keys(falseValues).map(v => parseInt(v))
     ]);
     
+    // 只对非零值创建连续范围，零值单独处理
+    const nonZeroValues = Array.from(allValues).filter(v => v !== 0);
+    const zeroExists = allValues.has(0);
+    
+    let continuousValues = [];
+    
+    if (nonZeroValues.length > 0) {
+      const minValue = Math.min(...nonZeroValues);
+      const maxValue = Math.max(...nonZeroValues);
+      for (let i = minValue; i <= maxValue; i++) {
+        continuousValues.push(i);
+      }
+    }
+    
+    // 如果存在零值，将其添加到开头
+    if (zeroExists) {
+      continuousValues = [0, ...continuousValues];
+    }
+    
     // 计算总的真值和假值出现次数
     const trueTotalCount = Object.values(trueValues).reduce((sum, count) => sum + count, 0);
     const falseTotalCount = Object.values(falseValues).reduce((sum, count) => sum + count, 0);
     
     // 先计算每个值的实际概率
-    const valueData = Array.from(allValues)
-      .sort((a, b) => a - b)
+    const valueData = continuousValues
       .map(value => {
         const trueProbability = trueValues[value] ? (trueValues[value] / trueTotalCount) * condition.successProbability : 0;
         const falseProbability = falseValues[value] ? (falseValues[value] / falseTotalCount) * condition.failureProbability : 0;
