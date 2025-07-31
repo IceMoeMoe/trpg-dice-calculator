@@ -113,8 +113,8 @@ function App() {
                   <code className="text-blue-600 font-mono">(d20+8&gt;=15) ? 2d6+3 : 0</code>
                 </div>
                 <div className="flex justify-between items-center p-2 bg-gray-50 rounded text-sm">
-                  <span className="font-medium text-gray-700">复杂嵌套条件</span>
-                  <code className="text-blue-600 font-mono">(d20&gt;=18) ? 0 : ((d20&gt;=12) ? (4d6/2) : 4d6)</code>
+                  <span className="font-medium text-gray-700">分段豁免（大成功无伤，成功半伤）</span>
+                  <code className="text-blue-600 font-mono">(d20=20)?0:(d20&gt;=17)?((d20&lt;20)?8d6/2:0):8d6</code>
                 </div>
                 <div className="flex justify-between items-center p-2 bg-orange-50 rounded text-sm">
                   <span className="font-medium text-orange-700">暴击翻倍伤害</span>
