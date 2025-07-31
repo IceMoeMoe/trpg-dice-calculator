@@ -1555,9 +1555,6 @@ class DiceCalculator {
     const diceSides = diceInfo.sides;
     const diceCount = diceInfo.count;
     
-    // 计算基础成功概率（不区分暴击）
-    const baseSuccessProbability = baseConditionResult.successProbability;
-    
     // 计算实际的暴击概率 - 基于骰子实际分布
     let actualCriticalProbability = 0;
     
@@ -1594,35 +1591,33 @@ class DiceCalculator {
         actualDiceSides = diceSides;
       }
       
-      // 根据实际暴击率计算对应的骰面范围
-    const diceTotalOutcomes = Object.values(diceDistribution).reduce((sum, count) => sum + count, 0);
-    if (diceTotalOutcomes > 0) {
-      const maxValue = Math.max(...Object.keys(diceDistribution).map(Number));
-      
-      // 计算暴击对应的骰面范围 - 直接使用传入的criticalRate
-      const criticalSides = Math.max(1, Math.round(actualDiceSides * criticalRate / 100));
-      const criticalThreshold = actualDiceSides - criticalSides + 1;
-      
-      // 统计暴击范围内的骰面数量
-      let criticalValueCount = 0;
-      for (const [value, count] of Object.entries(diceDistribution)) {
-        const val = parseFloat(value);
-        if (val >= criticalThreshold) {
-          criticalValueCount += count;
+      // 根据实际暴击率计算对应的骰面范围 - 直接使用传入的criticalRate
+      const diceTotalOutcomes = Object.values(diceDistribution).reduce((sum, count) => sum + count, 0);
+      if (diceTotalOutcomes > 0) {
+        const maxValue = Math.max(...Object.keys(diceDistribution).map(Number));
+        
+        // 计算暴击对应的骰面范围
+        const criticalSides = Math.max(1, Math.round(actualDiceSides * criticalRate / 100));
+        const criticalThreshold = actualDiceSides - criticalSides + 1;
+        
+        // 统计暴击范围内的骰面数量
+        let criticalValueCount = 0;
+        for (const [value, count] of Object.entries(diceDistribution)) {
+          const val = parseFloat(value);
+          if (val >= criticalThreshold) {
+            criticalValueCount += count;
+          }
         }
+        actualCriticalProbability = criticalValueCount / diceTotalOutcomes;
       }
-      actualCriticalProbability = criticalValueCount / diceTotalOutcomes;
-    }
     } catch (e) {
       // 回退到简单计算
       const criticalSides = Math.max(1, Math.round(diceSides * criticalRate / 100));
       actualCriticalProbability = criticalSides / diceSides;
     }
     
-    // 计算暴击和非暴击概率
-    const totalCriticalSuccessProbability = baseSuccessProbability * actualCriticalProbability;
-    const totalSuccessProbability = baseSuccessProbability * (1 - actualCriticalProbability);
-    const totalFailureProbability = baseConditionResult.failureProbability;
+    // 重新计算条件结果，区分暴击和非暴击情况
+    const conditionResult = this.evaluateConditionWithCritical(conditionNode, actualCriticalProbability);
     
     // 计算各种情况下的结果分布
     this.isCalculatingCritical = false;
@@ -1645,7 +1640,7 @@ class DiceCalculator {
     const result = {};
     
     // 普通成功的贡献
-    const normalSuccessCount = Math.round(scaleFactor * totalSuccessProbability);
+    const normalSuccessCount = Math.round(scaleFactor * conditionResult.normalSuccessProbability);
     if (normalSuccessCount > 0) {
       const normalSuccessTotal = Object.values(normalSuccessDist).reduce((sum, count) => sum + count, 0);
       for (const [value, count] of Object.entries(normalSuccessDist)) {
@@ -1659,7 +1654,7 @@ class DiceCalculator {
     }
     
     // 暴击成功的贡献
-    const criticalSuccessCount = Math.round(scaleFactor * totalCriticalSuccessProbability);
+    const criticalSuccessCount = Math.round(scaleFactor * conditionResult.criticalSuccessProbability);
     if (criticalSuccessCount > 0) {
       const criticalSuccessTotal = Object.values(criticalSuccessDist).reduce((sum, count) => sum + count, 0);
       for (const [value, count] of Object.entries(criticalSuccessDist)) {
@@ -1673,7 +1668,7 @@ class DiceCalculator {
     }
     
     // 失败的贡献
-    const failureCount = Math.round(scaleFactor * totalFailureProbability);
+    const failureCount = Math.round(scaleFactor * conditionResult.failureProbability);
     if (failureCount > 0) {
       const failureTotal = Object.values(failureDist).reduce((sum, count) => sum + count, 0);
       for (const [value, count] of Object.entries(failureDist)) {
@@ -1687,8 +1682,8 @@ class DiceCalculator {
     }
     
     // 计算实际暴击率
-    const finalActualCriticalProbability = (totalSuccessProbability + totalCriticalSuccessProbability) > 0 
-      ? totalCriticalSuccessProbability / (totalSuccessProbability + totalCriticalSuccessProbability) 
+    const finalActualCriticalProbability = (conditionResult.normalSuccessProbability + conditionResult.criticalSuccessProbability) > 0 
+      ? conditionResult.criticalSuccessProbability / (conditionResult.normalSuccessProbability + conditionResult.criticalSuccessProbability) 
       : 0;
     
     return {
@@ -1698,13 +1693,134 @@ class DiceCalculator {
       criticalHitValues: criticalSuccessDist,
       missValues: failureDist,
       probabilities: {
-        normalHit: totalSuccessProbability,
-        criticalHit: totalCriticalSuccessProbability,
-        miss: totalFailureProbability
+        normalHit: conditionResult.normalSuccessProbability,
+        criticalHit: conditionResult.criticalSuccessProbability,
+        miss: conditionResult.failureProbability
       },
       actualCriticalProbability: isNaN(finalActualCriticalProbability) ? 0 : finalActualCriticalProbability,
       criticalProbability: criticalRate,
       nestedConditions: []
+    };
+  }
+
+  // 评估条件表达式，区分暴击和非暴击情况
+  evaluateConditionWithCritical(conditionNode, actualCriticalProbability) {
+    if (conditionNode.type === 'comparison') {
+      const leftResult = this.evaluate(conditionNode.left);
+      const rightResult = this.evaluate(conditionNode.right);
+      
+      // 提取实际的分布数据
+      const leftDistribution = this.extractDistribution(leftResult);
+      const rightDistribution = this.extractDistribution(rightResult);
+      
+      // 获取骰子信息
+      const diceInfo = this.getDiceInfoFromCondition(conditionNode);
+      const diceSides = diceInfo.sides;
+      
+      let totalSuccessCount = 0;
+      let totalCriticalSuccessCount = 0;
+      let totalFailureCount = 0;
+      
+      // 如果右边是单个数值（不是分布），简化计算
+      if (Object.keys(rightDistribution).length === 1 && Object.keys(rightDistribution)[0] !== undefined) {
+        const rightValue = parseInt(Object.keys(rightDistribution)[0]);
+        
+        // 计算暴击对应的骰面范围
+        const criticalSides = Math.max(1, Math.round(diceSides * this.criticalOptions.criticalRate / 100));
+        const criticalThreshold = diceSides - criticalSides + 1;
+        
+        for (const [leftValue, leftCount] of Object.entries(leftDistribution)) {
+          const leftVal = parseInt(leftValue);
+          
+          let success = false;
+          switch (conditionNode.operator) {
+            case '>':
+              success = leftVal > rightValue;
+              break;
+            case '<':
+              success = leftVal < rightValue;
+              break;
+            case '==':
+              success = leftVal === rightValue;
+              break;
+            case '>=':
+              success = leftVal >= rightValue;
+              break;
+            case '<=':
+              success = leftVal <= rightValue;
+              break;
+          }
+          
+          if (success) {
+            // 判断是否为暴击
+            const isCritical = leftVal >= criticalThreshold;
+            if (isCritical) {
+              totalCriticalSuccessCount += leftCount;
+            } else {
+              totalSuccessCount += leftCount;
+            }
+          } else {
+            totalFailureCount += leftCount;
+          }
+        }
+      } else {
+        // 复杂情况：两边都是分布
+        let totalCount = 0;
+        
+        for (const [leftVal, leftCount] of Object.entries(leftDistribution)) {
+          for (const [rightVal, rightCount] of Object.entries(rightDistribution)) {
+            const combinedCount = leftCount * rightCount;
+            totalCount += combinedCount;
+            
+            const leftValue = parseFloat(leftVal);
+            const rightValue = parseFloat(rightVal);
+            
+            let success = false;
+            switch (conditionNode.operator) {
+              case '>':
+                success = leftValue > rightValue;
+                break;
+              case '<':
+                success = leftValue < rightValue;
+                break;
+              case '==':
+                success = leftValue === rightValue;
+                break;
+              case '>=':
+                success = leftValue >= rightValue;
+                break;
+              case '<=':
+                success = leftValue <= rightValue;
+                break;
+            }
+            
+            if (success) {
+              // 简化处理：使用实际暴击概率
+              const criticalCount = Math.round(combinedCount * actualCriticalProbability);
+              const normalCount = combinedCount - criticalCount;
+              totalCriticalSuccessCount += criticalCount;
+              totalSuccessCount += normalCount;
+            } else {
+              totalFailureCount += combinedCount;
+            }
+          }
+        }
+      }
+      
+      const totalCount = totalSuccessCount + totalCriticalSuccessCount + totalFailureCount;
+      
+      return {
+        normalSuccessProbability: totalCount > 0 ? totalSuccessCount / totalCount : 0,
+        criticalSuccessProbability: totalCount > 0 ? totalCriticalSuccessCount / totalCount : 0,
+        failureProbability: totalCount > 0 ? totalFailureCount / totalCount : 0
+      };
+    }
+    
+    // 默认回退到基础条件结果
+    return {
+      normalSuccessProbability: 0,
+      criticalSuccessProbability: 0,
+      failureProbability: 1
     };
   }
 
