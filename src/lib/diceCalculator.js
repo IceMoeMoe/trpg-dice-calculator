@@ -1583,13 +1583,25 @@ class DiceCalculator {
         actualDiceSides = diceSides;
       }
       
-      // 计算最高值（暴击值）的概率
-      const diceTotalOutcomes = Object.values(diceDistribution).reduce((sum, count) => sum + count, 0);
-      if (diceTotalOutcomes > 0) {
-        const maxValue = Math.max(...Object.keys(diceDistribution).map(Number));
-        const criticalValueCount = diceDistribution[maxValue] || 0;
-        actualCriticalProbability = criticalValueCount / diceTotalOutcomes;
+      // 根据实际暴击率计算对应的骰面范围
+    const diceTotalOutcomes = Object.values(diceDistribution).reduce((sum, count) => sum + count, 0);
+    if (diceTotalOutcomes > 0) {
+      const maxValue = Math.max(...Object.keys(diceDistribution).map(Number));
+      
+      // 计算暴击对应的骰面范围 - 直接使用传入的criticalRate
+      const criticalSides = Math.max(1, Math.round(actualDiceSides * criticalRate / 100));
+      const criticalThreshold = actualDiceSides - criticalSides + 1;
+      
+      // 统计暴击范围内的骰面数量
+      let criticalValueCount = 0;
+      for (const [value, count] of Object.entries(diceDistribution)) {
+        const val = parseFloat(value);
+        if (val >= criticalThreshold) {
+          criticalValueCount += count;
+        }
       }
+      actualCriticalProbability = criticalValueCount / diceTotalOutcomes;
+    }
     } catch (e) {
       // 回退到简单计算
       const criticalSides = Math.max(1, Math.round(diceSides * criticalRate / 100));
@@ -1680,7 +1692,7 @@ class DiceCalculator {
         miss: totalFailureProbability
       },
       actualCriticalProbability: isNaN(finalActualCriticalProbability) ? 0 : finalActualCriticalProbability,
-      criticalProbability: actualCriticalProbability * 100,
+      criticalProbability: criticalRate,
       nestedConditions: []
     };
   }
@@ -2136,7 +2148,7 @@ class DiceCalculator {
     const criticalResult = this.evaluate(ast);
     
     // 处理不同类型的结果
-    if (normalResult.type === 'conditional' || criticalResult.type === 'conditional') {
+    if (normalResult.type === 'conditional' || criticalResult.type === 'conditional' || ast.type === 'comparison') {
       // 如果是条件表达式，使用专门的暴击重叠计算
       if (ast.type === 'conditional') {
         const baseConditionResult = this.evaluate(ast.condition);
@@ -2163,8 +2175,37 @@ class DiceCalculator {
           diceSides: actualDiceSides,
           criticalSides: actualCriticalSides,
           originalCriticalRate: originalCriticalRate,
-          actualCriticalProbability: conditionalCriticalResult.criticalProbability,
-          criticalProbability: conditionalCriticalResult.criticalProbability
+          actualCriticalProbability: conditionalCriticalResult.actualCriticalProbability * 100,
+          criticalProbability: conditionalCriticalResult.actualCriticalProbability * 100
+        };
+      } else if (ast.type === 'comparison') {
+        // 处理比较表达式（如d20>10）
+        const baseConditionResult = this.evaluate(ast);
+        const conditionalCriticalResult = this.calculateConditionalWithCriticalOverlap(
+          ast,
+          { type: 'number', value: 1 },  // 成功时返回1
+          { type: 'number', value: 0 },  // 失败时返回0
+          baseConditionResult
+        );
+        
+        const average = this.calculateAverage(conditionalCriticalResult);
+        const totalOutcomes = Object.values(conditionalCriticalResult.combined).reduce((sum, count) => sum + count, 0);
+        
+        return {
+          distribution: conditionalCriticalResult.combined,
+          average,
+          totalOutcomes,
+          success: true,
+          isConditionalCritical: true,
+          normalHitValues: conditionalCriticalResult.normalHitValues,
+          criticalHitValues: conditionalCriticalResult.criticalHitValues,
+          missValues: conditionalCriticalResult.missValues,
+          probabilities: conditionalCriticalResult.probabilities,
+          diceSides: actualDiceSides,
+          criticalSides: actualCriticalSides,
+          originalCriticalRate: originalCriticalRate,
+          actualCriticalProbability: conditionalCriticalResult.actualCriticalProbability * 100,
+          criticalProbability: conditionalCriticalResult.actualCriticalProbability * 100
         };
       }
       
