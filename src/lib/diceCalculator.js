@@ -765,6 +765,17 @@ class Parser {
         if (leftDice) return leftDice;
         const rightDice = findDiceNode(node.right);
         if (rightDice) return rightDice;
+      } else if (node.type === 'keep') {
+        // 如果是keep操作，检查其表达式中的骰子
+        for (const expr of node.expressions) {
+          const dice = findDiceNode(expr);
+          if (dice) return dice;
+        }
+      } else if (node.type === 'critical_double' || node.type === 'critical_switch' || node.type === 'critical_only') {
+        // 如果是暴击操作，检查其表达式
+        const expr = node.type === 'critical_switch' ? node.normalExpression : node.expression;
+        const dice = findDiceNode(expr);
+        if (dice) return dice;
       }
       return null;
     };
