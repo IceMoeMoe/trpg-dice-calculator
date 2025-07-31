@@ -1752,7 +1752,7 @@ class DiceCalculator {
           }
           
           if (success) {
-            // 判断是否为暴击
+            // 判断是否为暴击 - 统一使用骰面值判断
             const isCritical = leftVal >= criticalThreshold;
             if (isCritical) {
               totalCriticalSuccessCount += leftCount;
@@ -1766,6 +1766,10 @@ class DiceCalculator {
       } else {
         // 复杂情况：两边都是分布
         let totalCount = 0;
+        
+        // 计算暴击对应的骰面范围
+        const criticalSides = Math.max(1, Math.round(diceSides * this.criticalOptions.criticalRate / 100));
+        const criticalThreshold = diceSides - criticalSides + 1;
         
         for (const [leftVal, leftCount] of Object.entries(leftDistribution)) {
           for (const [rightVal, rightCount] of Object.entries(rightDistribution)) {
@@ -1795,11 +1799,13 @@ class DiceCalculator {
             }
             
             if (success) {
-              // 简化处理：使用实际暴击概率
-              const criticalCount = Math.round(combinedCount * actualCriticalProbability);
-              const normalCount = combinedCount - criticalCount;
-              totalCriticalSuccessCount += criticalCount;
-              totalSuccessCount += normalCount;
+              // 判断左侧值是否为暴击 - 统一使用骰面值判断
+              const isCritical = leftValue >= criticalThreshold;
+              if (isCritical) {
+                totalCriticalSuccessCount += combinedCount;
+              } else {
+                totalSuccessCount += combinedCount;
+              }
             } else {
               totalFailureCount += combinedCount;
             }
