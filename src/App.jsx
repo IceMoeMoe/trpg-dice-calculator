@@ -113,7 +113,7 @@ function App() {
                   <code className="text-blue-600 font-mono">(d20+8&gt;=15) ? 2d6+3 : 0</code>
                 </div>
                 <div className="flex justify-between items-center p-2 bg-gray-50 rounded text-sm">
-                  <span className="font-medium text-gray-700">分段豁免（大成功无伤，成功半伤）</span>
+                  <span className="font-medium text-gray-700">分段豁免</span>
                   <code className="text-blue-600 font-mono">(d20=20)?0:(d20&gt;=17)?((d20&lt;20)?8d6/2:0):8d6</code>
                 </div>
                 <div className="flex justify-between items-center p-2 bg-orange-50 rounded text-sm">
