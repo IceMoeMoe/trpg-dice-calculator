@@ -923,8 +923,6 @@ class Parser {
 
 // 掷骰结果计算器
 class DiceCalculator {
-  
-  
   // 计算基本掷骰 (NdM)
   calculateBasicDice(count, sides) {
     const result = {};
@@ -973,16 +971,7 @@ class DiceCalculator {
   calculateKeepSingleDice(expression, keepCount, keepType) {
     const { count, sides } = expression;
     const result = {};
-        // --- 新增暴击修正 ---
-    if (this.isCalculatingCritical) {
-      // 暴击时，最高值就是暴击值
-      const criticalValue = keepType === 'highest'
-        ? sides // 最高值
-        : 1;    // 最低值
-      const sum = criticalValue * keepCount;
-      return { [sum]: 1 };
-    }
-  
+    
     // 生成所有可能的掷骰组合
     function generateCombinations(diceCount, diceSides) {
       if (diceCount === 1) {
@@ -1018,15 +1007,6 @@ class DiceCalculator {
   // 计算复合表达式的Keep操作（支持重骰等）
   calculateKeepComplex(expression, keepCount, keepType) {
     // 首先计算复合表达式的所有可能结果
-        // --- 新增暴击修正 ---
-    if (this.isCalculatingCritical) {
-      // 暴击时，最高值就是暴击值
-      const criticalValue = keepType === 'highest'
-        ? sides // 最高值
-        : 1;    // 最低值
-      const sum = criticalValue * keepCount;
-      return { [sum]: 1 };
-    }
     const baseResult = this.evaluate(expression);
     
     // 如果基础结果不是分布，无法应用keep
@@ -1048,15 +1028,6 @@ class DiceCalculator {
 
   // 计算带重骰的Keep操作
   calculateKeepWithReroll(rerollExpr, keepCount, keepType) {
-        // --- 新增暴击修正 ---
-    if (this.isCalculatingCritical) {
-      // 暴击时，最高值就是暴击值
-      const criticalValue = keepType === 'highest'
-        ? sides // 最高值
-        : 1;    // 最低值
-      const sum = criticalValue * keepCount;
-      return { [sum]: 1 };
-    }
     const { dice, minValue, maxValue, maxRerolls } = rerollExpr;
     const { count, sides } = dice;
     const result = {};
@@ -1200,24 +1171,12 @@ class DiceCalculator {
 
   // 计算重骰操作
   calculateReroll(diceNode, minValue, maxValue, maxRerolls) {
-  // --- 新增的修复逻辑 ---
-  if (this.isCalculatingCritical) {
-    // 如果当前处于暴击计算模式，我们假定初始投掷结果为暴击值（即骰子最大值）。
-    // 一个暴击结果不应被“因数值过低”的规则重骰。
-    // 因此，我们直接绕过所有重骰逻辑，返回骰子的最大值结果。
     const { count, sides } = diceNode;
-    const criticalValue = count * sides; // 例如 1d20 的暴击值是 20, 2d6 的暴击值是 12
-    return { [criticalValue]: 1 };
-  }
-  // --- 修复逻辑结束 ---
-
-  // 在非暴击模式下，保留原有的重骰计算逻辑
-  const { count, sides } = diceNode;
-  const result = {};
-
-  // 获取单个骰子的重骰结果分布
-  const singleDiceOutcomes = this.generateSingleDiceRerollOutcomes(sides, minValue, maxValue, maxRerolls);
-
+    const result = {};
+    
+    // 获取单个骰子的重骰结果分布
+    const singleDiceOutcomes = this.generateSingleDiceRerollOutcomes(sides, minValue, maxValue, maxRerolls);
+    
     // 如果只有一个骰子，直接返回结果
     if (count === 1) {
       return singleDiceOutcomes;
