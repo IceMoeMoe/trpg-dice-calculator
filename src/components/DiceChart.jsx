@@ -105,6 +105,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
             <YAxis 
               label={{ value: '概率 (%)', angle: -90, position: 'insideLeft' }}
               tickFormatter={(value) => `${value.toFixed(1)}%`}
+              domain={[0, 'auto']}
             />
             <Tooltip content={<ConditionalCriticalTooltip />} />
             <Legend />
@@ -268,28 +269,49 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
       ...Object.keys(falseValues).map(v => parseInt(v))
     ]);
     
-    // 只对非零值创建连续范围，零值单独处理
-    const nonZeroValues = Array.from(allValues).filter(v => v !== 0);
-    const zeroExists = allValues.has(0);
+    // 确保至少包含0和1，避免空数组
+    let continuousValues = Array.from(allValues).sort((a, b) => a - b);
     
-    let continuousValues = [];
-    
-    if (nonZeroValues.length > 0) {
-      const minValue = Math.min(...nonZeroValues);
-      const maxValue = Math.max(...nonZeroValues);
-      for (let i = minValue; i <= maxValue; i++) {
-        continuousValues.push(i);
+    // 对于条件表达式，强制包含0和1，确保图表有数据点
+    if (continuousValues.length === 0) {
+      continuousValues = [0, 1];
+    } else if (continuousValues.length === 1) {
+      // 如果只有一个值，确保包含0和1
+      const singleValue = continuousValues[0];
+      if (singleValue === 0) {
+        continuousValues = [0, 1];
+      } else if (singleValue === 1) {
+        continuousValues = [0, 1];
+      } else {
+        continuousValues = [0, singleValue];
+      }
+    } else {
+      // 对于只有两个值的简单条件表达式，直接使用这两个值
+      if (continuousValues.length === 2 && continuousValues.includes(0) && continuousValues.includes(1)) {
+        // 已经是0和1，直接使用
+      } else {
+        // 确保包含最小值到最大值之间的所有整数
+        const minValue = Math.min(...continuousValues);
+        const maxValue = Math.max(...continuousValues);
+        continuousValues = [];
+        for (let i = minValue; i <= maxValue; i++) {
+          continuousValues.push(i);
+        }
       }
     }
     
-    // 如果存在零值，将其添加到开头
-    if (zeroExists) {
-      continuousValues = [0, ...continuousValues];
-    }
-    
     // 计算正确的概率分布
-    const trueTotalCount = Object.values(trueValues).reduce((sum, count) => sum + count, 0);
-    const falseTotalCount = Object.values(falseValues).reduce((sum, count) => sum + count, 0);
+    const trueTotalCount = Object.values(trueValues).reduce((sum, count) => sum + count, 0) || 1;
+    const falseTotalCount = Object.values(falseValues).reduce((sum, count) => sum + count, 0) || 1;
+    
+    // 确保有数据
+    if (trueTotalCount === 0 && falseTotalCount === 0) {
+      return (
+        <div className="w-full h-64 flex items-center justify-center bg-gray-50 rounded-lg">
+          <p className="text-gray-500">条件表达式无有效数据</p>
+        </div>
+      );
+    }
     
     const chartData = continuousValues
       .map(value => {
@@ -299,14 +321,15 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
         
         return {
           value: value,
-          count: totalValueCount,
+          count: Math.max(totalValueCount, 0.1), // 确保有显示值
           trueCount: trueValueCount * condition.successProbability,
           falseCount: falseValueCount * condition.failureProbability,
           trueProbability: ((trueValueCount / trueTotalCount) * condition.successProbability * 100).toFixed(2),
           falseProbability: ((falseValueCount / falseTotalCount) * condition.failureProbability * 100).toFixed(2),
-          totalProbability: ((totalValueCount / (trueTotalCount * condition.successProbability + falseTotalCount * condition.failureProbability)) * 100).toFixed(2)
+          totalProbability: ((totalValueCount) * 100).toFixed(2)
         };
-      });
+      })
+      .filter(item => item.count > 0.01); // 确保显示有意义的数据
 
     // 条件表达式的自定义Tooltip
     const ConditionalTooltip = ({ active, payload, label }) => {
@@ -354,7 +377,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
             <Tooltip content={<ConditionalTooltip />} />
             <Legend />
             <Bar 
-              dataKey="totalCount" 
+              dataKey="count" 
               fill="#8b5cf6" 
               name="条件表达式结果"
               radius={[2, 2, 0, 0]}
