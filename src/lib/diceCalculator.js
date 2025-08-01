@@ -1734,6 +1734,85 @@ class DiceCalculator {
     };
   }
 
+  // 提取原始骰子值用于暴击判定
+  extractRawDiceValues(node, targetValue) {
+    const rawValues = [];
+    
+    const extractFromNode = (node, currentSum) => {
+      if (!node) return;
+      
+      if (node.type === 'dice' && node.isCriticalDice) {
+        // 对于暴击检定骰，我们需要计算出原始骰子的可能值
+        // 从总值中减去其他部分来推算原始骰子值
+        const diceMin = node.count || 1;
+        const diceMax = (node.count || 1) * (node.sides || 20);
+        
+        // 尝试反推原始骰子值
+        for (let diceValue = diceMin; diceValue <= diceMax; diceValue++) {
+          const remainingValue = targetValue - diceValue;
+          // 检查剩余值是否合理（可能来自其他部分）
+          if (this.isValidRemainingValue(node, remainingValue, currentSum - diceValue)) {
+            rawValues.push(diceValue);
+          }
+        }
+        return;
+      }
+      
+      if (node.type === 'binary_op') {
+        if (node.operator === '+') {
+          extractFromNode(node.left, currentSum);
+          extractFromNode(node.right, currentSum);
+        } else if (node.operator === '-') {
+          extractFromNode(node.left, currentSum);
+          extractFromNode(node.right, currentSum);
+        }
+      }
+      
+      if (node.type === 'keep' && node.expressions) {
+        for (const expr of node.expressions) {
+          extractFromNode(expr, currentSum);
+        }
+      }
+    };
+    
+    extractFromNode(node, targetValue);
+    return rawValues;
+  }
+
+  // 检查剩余值是否合理
+  isValidRemainingValue(diceNode, remainingValue, expectedRemaining) {
+    // 简单实现：允许一定的误差范围
+    return Math.abs(remainingValue - expectedRemaining) <= 1;
+  }
+
+  // 获取原始骰子值的分布（不含加值）
+  getRawDiceDistribution(node) {
+    if (!node) return {};
+    
+    if (node.type === 'dice' && node.isCriticalDice) {
+      return this.calculateBasicDice(node.count, node.sides);
+    }
+    
+    if (node.type === 'binary_op') {
+      // 对于二元操作，只返回暴击检定骰的部分
+      const leftRaw = this.getRawDiceDistribution(node.left);
+      const rightRaw = this.getRawDiceDistribution(node.right);
+      
+      // 返回非空的暴击检定骰分布
+      if (Object.keys(leftRaw).length > 0) return leftRaw;
+      if (Object.keys(rightRaw).length > 0) return rightRaw;
+    }
+    
+    if (node.type === 'keep' && node.expressions) {
+      for (const expr of node.expressions) {
+        const rawDist = this.getRawDiceDistribution(expr);
+        if (Object.keys(rawDist).length > 0) return rawDist;
+      }
+    }
+    
+    return {};
+  }
+
   // 评估条件表达式，区分暴击和非暴击情况
   evaluateConditionWithCritical(conditionNode, actualCriticalProbability) {
     if (conditionNode.type === 'comparison') {
@@ -1752,17 +1831,25 @@ class DiceCalculator {
       const leftHasCriticalDice = this.containsCriticalDice(conditionNode.left);
       const rightHasCriticalDice = this.containsCriticalDice(conditionNode.right);
       
+      // 获取原始暴击检定骰的分布（不含加值）
+      let rawDiceDistribution = {};
+      if (leftHasCriticalDice) {
+        rawDiceDistribution = this.getRawDiceDistribution(conditionNode.left);
+      } else if (rightHasCriticalDice) {
+        rawDiceDistribution = this.getRawDiceDistribution(conditionNode.right);
+      }
+      
       let totalSuccessCount = 0;
       let totalCriticalSuccessCount = 0;
       let totalFailureCount = 0;
       
+      // 计算暴击对应的骰面范围
+      const criticalSides = Math.max(1, Math.round(diceSides * this.criticalOptions.criticalRate / 100));
+      const criticalThreshold = diceSides - criticalSides + 1;
+      
       // 如果右边是单个数值（不是分布），简化计算
       if (Object.keys(rightDistribution).length === 1 && Object.keys(rightDistribution)[0] !== undefined) {
         const rightValue = parseInt(Object.keys(rightDistribution)[0]);
-        
-        // 计算暴击对应的骰面范围
-        const criticalSides = Math.max(1, Math.round(diceSides * this.criticalOptions.criticalRate / 100));
-        const criticalThreshold = diceSides - criticalSides + 1;
         
         for (const [leftValue, leftCount] of Object.entries(leftDistribution)) {
           const leftVal = parseInt(leftValue);
@@ -1788,14 +1875,32 @@ class DiceCalculator {
           }
           
           if (success) {
-            // 判断是否为暴击 - 需要检查暴击检定骰在哪一侧
+            // 判断是否为暴击 - 基于原始骰子值而不是加值后的结果
             let isCritical = false;
-            if (leftHasCriticalDice) {
-              // 暴击检定骰在左侧，检查左侧值
-              isCritical = leftVal >= criticalThreshold;
-            } else if (rightHasCriticalDice) {
-              // 暴击检定骰在右侧，检查右侧值
-              isCritical = rightValue >= criticalThreshold;
+            if (leftHasCriticalDice && Object.keys(rawDiceDistribution).length > 0) {
+              // 暴击检定骰在左侧，需要检查所有可能的原始骰子值
+              // 对于每个成功的结果，检查对应的原始骰子值是否达到暴击阈值
+              for (const [rawDiceValue, rawCount] of Object.entries(rawDiceDistribution)) {
+                const rawVal = parseInt(rawDiceValue);
+                if (rawVal >= criticalThreshold) {
+                  // 计算在这个原始骰子值下，是否会产生当前的leftVal结果
+                  if (this.canProduceResult(conditionNode.left, rawVal, leftVal)) {
+                    isCritical = true;
+                    break;
+                  }
+                }
+              }
+            } else if (rightHasCriticalDice && Object.keys(rawDiceDistribution).length > 0) {
+              // 暴击检定骰在右侧，检查右侧的原始骰子值
+              for (const [rawDiceValue, rawCount] of Object.entries(rawDiceDistribution)) {
+                const rawVal = parseInt(rawDiceValue);
+                if (rawVal >= criticalThreshold) {
+                  if (this.canProduceResult(conditionNode.right, rawVal, rightValue)) {
+                    isCritical = true;
+                    break;
+                  }
+                }
+              }
             }
             
             if (isCritical) {
@@ -1810,10 +1915,6 @@ class DiceCalculator {
       } else if (Object.keys(leftDistribution).length === 1 && Object.keys(leftDistribution)[0] !== undefined) {
         // 如果左边是单个数值，右边是分布
         const leftValue = parseInt(Object.keys(leftDistribution)[0]);
-        
-        // 计算暴击对应的骰面范围
-        const criticalSides = Math.max(1, Math.round(diceSides * this.criticalOptions.criticalRate / 100));
-        const criticalThreshold = diceSides - criticalSides + 1;
         
         for (const [rightValue, rightCount] of Object.entries(rightDistribution)) {
           const rightVal = parseInt(rightValue);
@@ -1839,14 +1940,30 @@ class DiceCalculator {
           }
           
           if (success) {
-            // 判断是否为暴击 - 需要检查暴击检定骰在哪一侧
+            // 判断是否为暴击 - 基于原始骰子值而不是加值后的结果
             let isCritical = false;
-            if (leftHasCriticalDice) {
-              // 暴击检定骰在左侧，检查左侧值
-              isCritical = leftValue >= criticalThreshold;
-            } else if (rightHasCriticalDice) {
-              // 暴击检定骰在右侧，检查右侧值
-              isCritical = rightVal >= criticalThreshold;
+            if (leftHasCriticalDice && Object.keys(rawDiceDistribution).length > 0) {
+              // 暴击检定骰在左侧，检查原始骰子值
+              for (const [rawDiceValue, rawCount] of Object.entries(rawDiceDistribution)) {
+                const rawVal = parseInt(rawDiceValue);
+                if (rawVal >= criticalThreshold) {
+                  if (this.canProduceResult(conditionNode.left, rawVal, leftValue)) {
+                    isCritical = true;
+                    break;
+                  }
+                }
+              }
+            } else if (rightHasCriticalDice && Object.keys(rawDiceDistribution).length > 0) {
+              // 暴击检定骰在右侧，检查右侧的原始骰子值
+              for (const [rawDiceValue, rawCount] of Object.entries(rawDiceDistribution)) {
+                const rawVal = parseInt(rawDiceValue);
+                if (rawVal >= criticalThreshold) {
+                  if (this.canProduceResult(conditionNode.right, rawVal, rightVal)) {
+                    isCritical = true;
+                    break;
+                  }
+                }
+              }
             }
             
             if (isCritical) {
@@ -1861,10 +1978,6 @@ class DiceCalculator {
       } else {
         // 复杂情况：两边都是分布
         let totalCount = 0;
-        
-        // 计算暴击对应的骰面范围
-        const criticalSides = Math.max(1, Math.round(diceSides * this.criticalOptions.criticalRate / 100));
-        const criticalThreshold = diceSides - criticalSides + 1;
         
         for (const [leftVal, leftCount] of Object.entries(leftDistribution)) {
           for (const [rightVal, rightCount] of Object.entries(rightDistribution)) {
@@ -1895,14 +2008,30 @@ class DiceCalculator {
             }
             
             if (success) {
-              // 判断是否为暴击 - 需要检查暴击检定骰在哪一侧
+              // 判断是否为暴击 - 基于原始骰子值而不是加值后的结果
               let isCritical = false;
-              if (leftHasCriticalDice) {
-                // 暴击检定骰在左侧，检查左侧值
-                isCritical = leftValue >= criticalThreshold;
-              } else if (rightHasCriticalDice) {
-                // 暴击检定骰在右侧，检查右侧值
-                isCritical = rightValue >= criticalThreshold;
+              if (leftHasCriticalDice && Object.keys(rawDiceDistribution).length > 0) {
+                // 暴击检定骰在左侧，检查原始骰子值
+                for (const [rawDiceValue, rawCount] of Object.entries(rawDiceDistribution)) {
+                  const rawVal = parseInt(rawDiceValue);
+                  if (rawVal >= criticalThreshold) {
+                    if (this.canProduceResult(conditionNode.left, rawVal, leftValue)) {
+                      isCritical = true;
+                      break;
+                    }
+                  }
+                }
+              } else if (rightHasCriticalDice && Object.keys(rawDiceDistribution).length > 0) {
+                // 暴击检定骰在右侧，检查右侧的原始骰子值
+                for (const [rawDiceValue, rawCount] of Object.entries(rawDiceDistribution)) {
+                  const rawVal = parseInt(rawDiceValue);
+                  if (rawVal >= criticalThreshold) {
+                    if (this.canProduceResult(conditionNode.right, rawVal, rightValue)) {
+                      isCritical = true;
+                      break;
+                    }
+                  }
+                }
               }
               
               if (isCritical) {
@@ -1967,6 +2096,156 @@ class DiceCalculator {
     
     const dice = findCriticalDice(conditionNode);
     return dice || { sides: 20, count: 1 };
+  }
+
+  // 检查给定的原始骰子值是否能产生特定的最终结果
+  canProduceResult(node, rawDiceValue, finalResult) {
+    if (!node) return false;
+    
+    // 如果就是骰子本身，直接比较
+    if (node.type === 'dice' && node.isCriticalDice) {
+      return rawDiceValue === finalResult;
+    }
+    
+    // 如果是二元操作
+    if (node.type === 'binary_op') {
+      const left = node.left;
+      const right = node.right;
+      
+      // 检查哪边包含暴击检定骰
+      if (this.containsCriticalDice(left)) {
+        // 左边包含暴击检定骰
+        if (left.type === 'dice' && left.isCriticalDice) {
+          // 左边就是暴击检定骰，计算右边的贡献
+          const rightContribution = this.calculateConstantContribution(right);
+          
+          switch (node.operator) {
+            case '+':
+              return rawDiceValue + rightContribution === finalResult;
+            case '-':
+              return rawDiceValue - rightContribution === finalResult;
+            case '*':
+              return rawDiceValue * rightContribution === finalResult;
+            case '/':
+              return rightContribution !== 0 && rawDiceValue / rightContribution === finalResult;
+          }
+        } else {
+          // 左边是复合表达式，递归检查
+          const rightContribution = this.calculateConstantContribution(right);
+          let expectedLeftResult;
+          
+          switch (node.operator) {
+            case '+':
+              expectedLeftResult = finalResult - rightContribution;
+              break;
+            case '-':
+              expectedLeftResult = finalResult + rightContribution;
+              break;
+            case '*':
+              expectedLeftResult = rightContribution !== 0 ? finalResult / rightContribution : 0;
+              break;
+            case '/':
+              expectedLeftResult = finalResult * rightContribution;
+              break;
+            default:
+              return false;
+          }
+          
+          return this.canProduceResult(left, rawDiceValue, expectedLeftResult);
+        }
+      } else if (this.containsCriticalDice(right)) {
+        // 右边包含暴击检定骰
+        if (right.type === 'dice' && right.isCriticalDice) {
+          // 右边就是暴击检定骰，计算左边的贡献
+          const leftContribution = this.calculateConstantContribution(left);
+          
+          switch (node.operator) {
+            case '+':
+              return leftContribution + rawDiceValue === finalResult;
+            case '-':
+              return leftContribution - rawDiceValue === finalResult;
+            case '*':
+              return leftContribution * rawDiceValue === finalResult;
+            case '/':
+              return rawDiceValue !== 0 && leftContribution / rawDiceValue === finalResult;
+          }
+        } else {
+          // 右边是复合表达式，递归检查
+          const leftContribution = this.calculateConstantContribution(left);
+          let expectedRightResult;
+          
+          switch (node.operator) {
+            case '+':
+              expectedRightResult = finalResult - leftContribution;
+              break;
+            case '-':
+              expectedRightResult = leftContribution - finalResult;
+              break;
+            case '*':
+              expectedRightResult = leftContribution !== 0 ? finalResult / leftContribution : 0;
+              break;
+            case '/':
+              expectedRightResult = finalResult !== 0 ? leftContribution / finalResult : 0;
+              break;
+            default:
+              return false;
+          }
+          
+          return this.canProduceResult(right, rawDiceValue, expectedRightResult);
+        }
+      }
+    }
+    
+    // 如果是keep操作
+    if (node.type === 'keep' && node.expressions) {
+      for (const expr of node.expressions) {
+        if (this.containsCriticalDice(expr)) {
+          // 对于keep操作，这里需要更复杂的逻辑
+          // 简化处理：假设keep操作不改变暴击判定
+          return this.canProduceResult(expr, rawDiceValue, finalResult);
+        }
+      }
+    }
+    
+    return false;
+  }
+
+  // 计算表达式的常数贡献（不包含暴击检定骰的部分）
+  calculateConstantContribution(node) {
+    if (!node) return 0;
+    
+    if (node.type === 'number') {
+      return node.value;
+    }
+    
+    if (node.type === 'dice' && !node.isCriticalDice) {
+      // 非暴击检定骰，返回期望值
+      const average = ((node.sides || 20) + 1) / 2;
+      return (node.count || 1) * average;
+    }
+    
+    if (node.type === 'dice' && node.isCriticalDice) {
+      // 暴击检定骰不参与常数计算
+      return 0;
+    }
+    
+    if (node.type === 'binary_op') {
+      const leftContrib = this.containsCriticalDice(node.left) ? 0 : this.calculateConstantContribution(node.left);
+      const rightContrib = this.containsCriticalDice(node.right) ? 0 : this.calculateConstantContribution(node.right);
+      
+      switch (node.operator) {
+        case '+':
+          return leftContrib + rightContrib;
+        case '-':
+          return leftContrib - rightContrib;
+        case '*':
+          return leftContrib * rightContrib;
+        case '/':
+          return rightContrib !== 0 ? leftContrib / rightContrib : 0;
+      }
+    }
+    
+    return 0;
   }
 
   // 检查是否是简单的骰子条件（骰子 > threshold 形式）
