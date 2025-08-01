@@ -130,11 +130,11 @@ function App() {
                 </div>
                 <div className="flex justify-between items-center p-2 bg-orange-50 rounded text-sm">
                   <span className="font-medium text-orange-700">复合暴击攻击</span>
-                  <code className="text-orange-600 font-mono">d20&gt;11?#|1d8|1d10|#+3:0</code>
+                  <code className="text-orange-600 font-mono">D20&gt;11?#|1d8|1d10|#+3:0</code>
                 </div>
                 <div className="flex justify-between items-center p-2 bg-orange-50 rounded text-sm">
                   <span className="font-medium text-orange-700">暴击攻击比较</span>
-                  <code className="text-orange-600 font-mono">(d20&gt;10?#1d8+[1d12]+5#:0)&gt;(d20&gt;10?#|1d8|1d10|+5#:0)</code>
+                  <code className="text-orange-600 font-mono">(D20&gt;10?#1d8+[1d12]+5#:0)&gt;(D20&gt;10?#|1d8|1d10|+5#:0)</code>
                 </div>
                 <div className="flex justify-between items-center p-2 bg-green-50 rounded text-sm">
                   <span className="font-medium text-green-700">爆炸骰成功计数</span>
