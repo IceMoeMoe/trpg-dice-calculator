@@ -84,7 +84,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
     };
 
     return (
-      <div className="w-full h-64">
+      <div className="w-full h-80">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={chartData}
@@ -92,7 +92,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
               top: 20,
               right: 30,
               left: 20,
-              bottom: 5,
+              bottom: 40,
             }}
           >
             <CartesianGrid strokeDasharray="3 3" />
@@ -221,7 +221,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
     };
 
     return (
-      <div className="w-full h-64">
+      <div className="w-full h-80">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={chartData}
@@ -229,7 +229,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
               top: 20,
               right: 30,
               left: 20,
-              bottom: 5,
+              bottom: 40,
             }}
           >
             <CartesianGrid strokeDasharray="3 3" />
@@ -362,7 +362,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
     };
 
     return (
-      <div className="w-full h-64">
+      <div className="w-full h-80">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={chartData}
@@ -370,7 +370,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
               top: 20,
               right: 30,
               left: 20,
-              bottom: 5,
+              bottom: 40,
             }}
           >
             <CartesianGrid strokeDasharray="3 3" />
@@ -404,14 +404,27 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
   const chartData = Object.entries(distribution)
     .map(([value, count]) => {
       const probability = (count / totalOutcomes) * 100;
+      const numericValue = parseFloat(value);
       return {
-        value: parseInt(value),
+        value: numericValue,
+        displayValue: numericValue % 1 === 0 ? numericValue.toString() : numericValue.toFixed(2),
         count: count,
         probability: probability.toFixed(2),
         displayCount: count // 保持原始计数用于显示
       };
     })
     .sort((a, b) => a.value - b.value);
+
+  // 计算智能的X轴间隔
+  const calculateXAxisInterval = (dataLength) => {
+    if (dataLength <= 10) return 0; // 显示所有标签
+    if (dataLength <= 20) return 1; // 每隔1个显示
+    if (dataLength <= 40) return 2; // 每隔2个显示
+    if (dataLength <= 60) return 4; // 每隔4个显示
+    return Math.floor(dataLength / 12); // 保持大约12个标签
+  };
+
+  const xAxisInterval = calculateXAxisInterval(chartData.length);
 
   // 自定义Tooltip
   const CustomTooltip = ({ active, payload, label }) => {
@@ -437,7 +450,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
   }
 
   return (
-    <div className="w-full h-64">
+    <div className="w-full h-80"> {/* 增加高度给底部标签更多空间 */}
       <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={chartData}
@@ -445,14 +458,16 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
               top: 20,
               right: 30,
               left: 20,
-              bottom: 5,
+              bottom: 40, // 增加底部边距给X轴标签更多空间
             }}
           >
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis 
-              dataKey="value" 
+              dataKey="displayValue" 
               type="category"
-              interval={0}
+              interval={xAxisInterval}
+              tick={{ fontSize: 11, angle: -45 }} // 倾斜显示，减小字体
+              height={60} // 为倾斜标签预留高度
             />
             <YAxis 
               label={{ value: '次数', angle: -90, position: 'insideLeft' }}

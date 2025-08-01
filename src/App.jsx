@@ -114,7 +114,7 @@ function App() {
                 </div>
                 <div className="flex justify-between items-center p-2 bg-gray-50 rounded text-sm">
                   <span className="font-medium text-gray-700">分段豁免</span>
-                  <code className="text-blue-600 font-mono">(d20=20)?0:(d20&gt;=17)?((d20&lt;20)?8d6/2:0):8d6</code>
+                  <code className="text-blue-600 font-mono">d20=20?0:d_1&gt;16?8d6/2:8d6</code>
                 </div>
                 <div className="flex justify-between items-center p-2 bg-orange-50 rounded text-sm">
                   <span className="font-medium text-orange-700">暴击翻倍伤害</span>
@@ -198,6 +198,10 @@ function App() {
                 <div className="flex items-start gap-2">
                   <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">+, -, *, /</code>
                   <span>基本运算符和括号</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">d_n</code>
+                  <span>引用从左到右第n组骰的骰值(例：8d6被视为一组)</span>
                 </div>
                 <div className="flex items-start gap-2">
                   <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">表达式rX~YeZ</code>

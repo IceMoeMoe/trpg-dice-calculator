@@ -36,7 +36,7 @@ const ResultDisplay = ({ result, formula }) => {
   const { distribution, average, totalOutcomes } = result;
   
   // 计算一些统计信息
-  const values = Object.keys(distribution).map(Number).sort((a, b) => a - b);
+  const values = Object.keys(distribution).map(parseFloat).sort((a, b) => a - b);
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values);
   
@@ -44,7 +44,11 @@ const ResultDisplay = ({ result, formula }) => {
   const maxCount = Math.max(...Object.values(distribution));
   const mostLikelyValues = Object.entries(distribution)
     .filter(([value, count]) => count === maxCount)
-    .map(([value, count]) => ({ value: parseInt(value), count }))
+    .map(([value, count]) => ({ 
+      value: parseFloat(value), 
+      displayValue: parseFloat(value) % 1 === 0 ? parseFloat(value).toString() : parseFloat(value).toFixed(2),
+      count 
+    }))
     .sort((a, b) => a.value - b.value); // 按值排序
 
   // 找到第二高概率的结果
@@ -66,7 +70,11 @@ const ResultDisplay = ({ result, formula }) => {
     if (shouldShowSecondMostLikely) {
       secondMostLikelyValues = Object.entries(distribution)
         .filter(([value, count]) => count === secondMaxCount)
-        .map(([value, count]) => ({ value: parseInt(value), count }))
+        .map(([value, count]) => ({ 
+          value: parseFloat(value), 
+          displayValue: parseFloat(value) % 1 === 0 ? parseFloat(value).toString() : parseFloat(value).toFixed(2),
+          count 
+        }))
         .sort((a, b) => a.value - b.value);
     }
   }
@@ -95,9 +103,9 @@ const ResultDisplay = ({ result, formula }) => {
                 <p className="text-sm text-gray-600">最可能结果</p>
                 <div className="text-lg font-semibold">
                   {mostLikelyValues.length === 1 ? (
-                    <span>{mostLikelyValues[0].value}</span>
+                    <span>{mostLikelyValues[0].displayValue}</span>
                   ) : (
-                    <span>{mostLikelyValues.map(v => v.value).join(', ')}</span>
+                    <span>{mostLikelyValues.map(v => v.displayValue).join(', ')}</span>
                   )}
                 </div>
                 <p className="text-xs text-gray-500">
@@ -111,9 +119,9 @@ const ResultDisplay = ({ result, formula }) => {
                     <p className="text-sm text-gray-600">第二可能结果</p>
                     <div className="text-base font-medium text-gray-700">
                       {secondMostLikelyValues.length === 1 ? (
-                        <span>{secondMostLikelyValues[0].value}</span>
+                        <span>{secondMostLikelyValues[0].displayValue}</span>
                       ) : (
-                        <span>{secondMostLikelyValues.map(v => v.value).join(', ')}</span>
+                        <span>{secondMostLikelyValues.map(v => v.displayValue).join(', ')}</span>
                       )}
                     </div>
                     <p className="text-xs text-gray-500">
@@ -131,7 +139,9 @@ const ResultDisplay = ({ result, formula }) => {
           <CardContent className="p-4">
             <div>
               <p className="text-sm text-gray-600">范围</p>
-              <p className="text-lg font-semibold">{minValue} - {maxValue}</p>
+              <p className="text-lg font-semibold">
+                {minValue % 1 === 0 ? minValue.toString() : minValue.toFixed(2)} - {maxValue % 1 === 0 ? maxValue.toString() : maxValue.toFixed(2)}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -549,10 +559,11 @@ const ResultDisplay = ({ result, formula }) => {
                   const count = distribution[value];
                   const probability = (count / totalOutcomes) * 100;
                   const barWidth = (probability / Math.max(...Object.values(distribution).map(c => (c / totalOutcomes) * 100))) * 100;
+                  const displayValue = value % 1 === 0 ? value.toString() : value.toFixed(2);
                   
                   return (
                     <tr key={value} className="border-b hover:bg-gray-50">
-                      <td className="p-2 font-mono">{value}</td>
+                      <td className="p-2 font-mono">{displayValue}</td>
                       <td className="p-2 text-right">{count.toLocaleString()}</td>
                       <td className="p-2 text-right">{probability.toFixed(2)}%</td>
                       <td className="p-2">

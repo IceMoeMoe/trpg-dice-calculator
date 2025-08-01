@@ -23,8 +23,10 @@ class Lexer {
         this.tokens.push({ type: 'D', value: 'D' });
         this.position++;
       } else if (char === 'd') {
-        // 检查前一个字符是否是数字
-        if (this.position > 0 && this.isDigit(this.input[this.position - 1])) {
+        // 检查是否是 'd_' 开头的骰子引用
+        if (this.position + 1 < this.input.length && this.input[this.position + 1] === '_') {
+          this.readIdentifier();
+        } else if (this.position > 0 && this.isDigit(this.input[this.position - 1])) {
           // 这个'd'是掷骰表达式的一部分，在readNumber中已经处理
           this.tokens.push({ type: 'd', value: 'd' });
           this.position++;
@@ -33,8 +35,10 @@ class Lexer {
           this.position++;
         }
       } else if (char === 'D') {
-        // 检查前一个字符是否是数字
-        if (this.position > 0 && this.isDigit(this.input[this.position - 1])) {
+        // 检查是否是 'D_' 开头的骰子引用
+        if (this.position + 1 < this.input.length && this.input[this.position + 1] === '_') {
+          this.readIdentifier();
+        } else if (this.position > 0 && this.isDigit(this.input[this.position - 1])) {
           // 这个'D'是掷骰表达式的一部分，在readNumber中已经处理
           this.tokens.push({ type: 'D', value: 'D' });
           this.position++;
@@ -112,6 +116,9 @@ class Lexer {
         this.position++;
       } else if (char === ']') {
         this.tokens.push({ type: 'RBRACKET', value: ']' });
+        this.position++;
+      } else if (char === '_') {
+        this.tokens.push({ type: 'UNDERSCORE', value: '_' });
         this.position++;
       } else {
         throw new Error(`未知字符: ${char}`);
@@ -198,7 +205,7 @@ class Lexer {
     } else {
       // 正常的标识符读取
       while (this.position < this.input.length && 
-             (this.isLetter(this.input[this.position]) || this.isDigit(this.input[this.position]))) {
+             (this.isLetter(this.input[this.position]) || this.isDigit(this.input[this.position]) || this.input[this.position] === '_')) {
         identifier += this.input[this.position];
         this.position++;
       }
@@ -275,6 +282,20 @@ class Lexer {
         }
         return;
       }
+    }
+    
+    // 检查是否是骰子引用 (如 "d_1", "d_2", "D_1", "D_2")
+    const diceRefMatch = identifier.match(/^([dD])_(\d+)$/);
+    if (diceRefMatch) {
+      const diceChar = diceRefMatch[1];
+      const diceId = parseInt(diceRefMatch[2]);
+      const isCriticalDice = diceChar === 'D';
+      
+      this.tokens.push({ 
+        type: 'DICE_REF', 
+        value: { id: diceId, isCriticalDice }
+      });
+      return;
     }
     
     // 检查是否是掷骰表达式 (如 "2d6", "2D6", "d20" 或 "D20")
@@ -470,14 +491,28 @@ class Parser {
   constructor(tokens) {
     this.tokens = tokens;
     this.position = 0;
+    this.diceIdCounter = 1; // 骰子ID计数器
+    this.diceRegistry = new Map(); // 骰子注册表：id -> dice definition
+    this.enableDiceReuse = false; // 是否启用骰子复用模式
   }
 
   parse() {
+    // 首先检查tokens中是否包含骰子引用
+    const hasDiceReferences = this.tokens.some(token => token.type === 'DICE_REF');
+    
+    if (hasDiceReferences) {
+      // 如果有骰子引用，则启用骰子复用模式
+      this.enableDiceReuse = true;
+    }
+    
     const result = this.parseConditional();
     if (this.currentToken().type !== 'EOF') {
       throw new Error(`意外的token: ${this.currentToken().type}`);
     }
-    return result;
+    return {
+      ast: result,
+      diceRegistry: this.diceRegistry
+    };
   }
 
   parseConditional() {
@@ -681,12 +716,35 @@ class Parser {
         if (sidesToken.type === 'NUMBER') {
           const sides = sidesToken.value;
           this.advance();
-          return {
-            type: 'dice',
-            count: count,
-            sides: sides,
-            isCriticalDice: isCriticalDice
-          };
+          
+          // 在骰子复用模式下，每个骰子都需要独立的ID
+          if (this.enableDiceReuse) {
+            const diceId = this.diceIdCounter++;
+            const diceDefinition = {
+              count: count,
+              sides: sides,
+              isCriticalDice: isCriticalDice
+            };
+            
+            // 注册骰子
+            this.diceRegistry.set(diceId, diceDefinition);
+            
+            return {
+              type: 'dice',
+              id: diceId,
+              count: count,
+              sides: sides,
+              isCriticalDice: isCriticalDice
+            };
+          } else {
+            // 普通模式，不分配ID
+            return {
+              type: 'dice',
+              count: count,
+              sides: sides,
+              isCriticalDice: isCriticalDice
+            };
+          }
         } else {
           throw new Error(`${nextToken.value}后面必须跟数字`);
         }
@@ -708,12 +766,35 @@ class Parser {
       if (sidesToken.type === 'NUMBER') {
         const sides = sidesToken.value;
         this.advance();
-        return {
-          type: 'dice',
-          count: 1,
-          sides: sides,
-          isCriticalDice: isCriticalDice
-        };
+        
+        // 在骰子复用模式下，每个骰子都需要独立的ID
+        if (this.enableDiceReuse) {
+          const diceId = this.diceIdCounter++;
+          const diceDefinition = {
+            count: 1,
+            sides: sides,
+            isCriticalDice: isCriticalDice
+          };
+          
+          // 注册骰子
+          this.diceRegistry.set(diceId, diceDefinition);
+          
+          return {
+            type: 'dice',
+            id: diceId,
+            count: 1,
+            sides: sides,
+            isCriticalDice: isCriticalDice
+          };
+        } else {
+          // 普通模式，不分配ID
+          return {
+            type: 'dice',
+            count: 1,
+            sides: sides,
+            isCriticalDice: isCriticalDice
+          };
+        }
       } else {
         throw new Error(`${token.value}后面必须跟数字`);
       }
@@ -721,11 +802,52 @@ class Parser {
     
     if (token.type === 'DICE') {
       this.advance();
+      // 在骰子复用模式下，每个骰子都需要独立的ID
+      if (this.enableDiceReuse) {
+        const diceId = this.diceIdCounter++;
+        const diceDefinition = {
+          count: token.value.count,
+          sides: token.value.sides,
+          isCriticalDice: token.value.isCriticalDice || false
+        };
+        
+        // 注册骰子
+        this.diceRegistry.set(diceId, diceDefinition);
+        
+        return {
+          type: 'dice',
+          id: diceId,
+          count: token.value.count,
+          sides: token.value.sides,
+          isCriticalDice: token.value.isCriticalDice || false
+        };
+      } else {
+        // 普通模式，不分配ID
+        return {
+          type: 'dice',
+          count: token.value.count,
+          sides: token.value.sides,
+          isCriticalDice: token.value.isCriticalDice || false
+        };
+      }
+    }
+    
+    if (token.type === 'DICE_REF') {
+      this.advance();
+      const diceId = token.value.id;
+      
+      // 检查引用的骰子是否已经存在
+      if (!this.diceRegistry.has(diceId)) {
+        throw new Error(`引用的骰子 d_${diceId} 不存在或尚未定义`);
+      }
+      
+      const diceDefinition = this.diceRegistry.get(diceId);
       return {
-        type: 'dice',
-        count: token.value.count,
-        sides: token.value.sides,
-        isCriticalDice: token.value.isCriticalDice || false
+        type: 'dice_ref',
+        id: diceId,
+        count: diceDefinition.count,
+        sides: diceDefinition.sides,
+        isCriticalDice: diceDefinition.isCriticalDice
       };
     }
     
@@ -956,6 +1078,22 @@ class Parser {
 
 // 掷骰结果计算器
 class DiceCalculator {
+  constructor() {
+    this.diceResults = new Map(); // 存储骰子ID到结果的映射
+    this.criticalOptions = null; // 暴击选项
+    this.isCalculatingCritical = false; // 是否正在计算暴击情况
+  }
+  
+  // 设置骰子结果映射
+  setDiceResults(diceResults) {
+    this.diceResults = diceResults;
+  }
+  
+  // 获取骰子结果映射
+  getDiceResults() {
+    return this.diceResults;
+  }
+  
   // 计算基本掷骰 (NdM)
   calculateBasicDice(count, sides) {
     const result = {};
@@ -1562,6 +1700,9 @@ class DiceCalculator {
     if (node.type === 'dice' && node.isCriticalDice) {
       return true;
     }
+    if (node.type === 'dice_ref' && node.isCriticalDice) {
+      return true;
+    }
     if (node.type === 'binary_op') {
       return this.containsCriticalDice(node.left) || this.containsCriticalDice(node.right);
     }
@@ -1790,6 +1931,10 @@ class DiceCalculator {
     if (!node) return {};
     
     if (node.type === 'dice' && node.isCriticalDice) {
+      return this.calculateBasicDice(node.count, node.sides);
+    }
+    
+    if (node.type === 'dice_ref' && node.isCriticalDice) {
       return this.calculateBasicDice(node.count, node.sides);
     }
     
@@ -2072,9 +2217,13 @@ class DiceCalculator {
         return { sides: node.sides || 20, count: node.count || 1 };
       }
       
+      if (node.type === 'dice_ref' && node.isCriticalDice) {
+        return { sides: node.sides || 20, count: node.count || 1 };
+      }
+      
       if (node.type === 'keep' && node.expressions) {
         for (const expr of node.expressions) {
-          if (expr.type === 'dice' && expr.isCriticalDice) {
+          if ((expr.type === 'dice' || expr.type === 'dice_ref') && expr.isCriticalDice) {
             // 对于keep操作，暴击计算应该基于原始的骰子数量，而不是keep后的数量
             return { sides: expr.sides || 20, count: expr.count || 1 };
           }
@@ -2103,7 +2252,7 @@ class DiceCalculator {
     if (!node) return false;
     
     // 如果就是骰子本身，直接比较
-    if (node.type === 'dice' && node.isCriticalDice) {
+    if ((node.type === 'dice' || node.type === 'dice_ref') && node.isCriticalDice) {
       return rawDiceValue === finalResult;
     }
     
@@ -2115,7 +2264,7 @@ class DiceCalculator {
       // 检查哪边包含暴击检定骰
       if (this.containsCriticalDice(left)) {
         // 左边包含暴击检定骰
-        if (left.type === 'dice' && left.isCriticalDice) {
+        if ((left.type === 'dice' || left.type === 'dice_ref') && left.isCriticalDice) {
           // 左边就是暴击检定骰，计算右边的贡献
           const rightContribution = this.calculateConstantContribution(right);
           
@@ -2155,7 +2304,7 @@ class DiceCalculator {
         }
       } else if (this.containsCriticalDice(right)) {
         // 右边包含暴击检定骰
-        if (right.type === 'dice' && right.isCriticalDice) {
+        if ((right.type === 'dice' || right.type === 'dice_ref') && right.isCriticalDice) {
           // 右边就是暴击检定骰，计算左边的贡献
           const leftContribution = this.calculateConstantContribution(left);
           
@@ -2224,9 +2373,15 @@ class DiceCalculator {
       return (node.count || 1) * average;
     }
     
-    if (node.type === 'dice' && node.isCriticalDice) {
+    if ((node.type === 'dice' || node.type === 'dice_ref') && node.isCriticalDice) {
       // 暴击检定骰不参与常数计算
       return 0;
+    }
+    
+    if (node.type === 'dice_ref' && !node.isCriticalDice) {
+      // 非暴击检定骰引用，返回期望值
+      const average = ((node.sides || 20) + 1) / 2;
+      return (node.count || 1) * average;
     }
     
     if (node.type === 'binary_op') {
@@ -2506,12 +2661,18 @@ class DiceCalculator {
         return { [node.value]: 1 };
         
       case 'dice':
+        // 新的骰子复用系统下，每个骰子都应该正常计算
         const diceResult = this.calculateBasicDice(node.count, node.sides);
         // 为骰子结果添加暴击检定标记
         if (node.isCriticalDice) {
           diceResult.isCriticalDice = true;
         }
         return diceResult;
+        
+      case 'dice_ref':
+        // 骰子引用在新系统下不应该被直接调用
+        // 它们应该在calculateWithDiceReuse中被特殊处理
+        throw new Error(`骰子引用 d_${node.id} 应该在骰子复用系统中处理`);
         
       case 'keep':
         // 兼容旧版本的单表达式和新版本的多表达式
@@ -2915,7 +3076,7 @@ class DiceCalculator {
     const findCriticalDiceSides = (node) => {
       if (!node) return null;
       
-      if (node.type === 'dice' && node.isCriticalDice) {
+      if ((node.type === 'dice' || node.type === 'dice_ref') && node.isCriticalDice) {
         return node.sides || 20;
       }
       
@@ -2983,11 +3144,17 @@ class DiceCalculator {
       const tokens = lexer.tokenize();
       
       const parser = new Parser(tokens);
-      const ast = parser.parse();
+      const parseResult = parser.parse();
+      const ast = parseResult.ast;
+      const diceRegistry = parseResult.diceRegistry;
       
-      // 如果启用了暴击系统且表达式中包含暴击检定骰，需要分别计算普通和暴击情况
+      // 检查是否有骰子引用，如果有则使用特殊的计算方法
+      if (diceRegistry.size > 0) {
+        return this.calculateWithDiceReuse(ast, diceRegistry, criticalOptions);
+      }
+      
+      // 原有的计算逻辑
       if (criticalOptions.criticalEnabled && criticalOptions.criticalRate > 0 && this.containsCriticalDice(ast)) {
-        // 获取用于暴击判定的骰面大小
         const criticalDiceSides = this.getCriticalDiceSidesFromAST(ast);
         const adjustedCriticalRate = this.convertCriticalRateToSides(criticalOptions.criticalRate, criticalDiceSides);
         return this.calculateWithCritical(ast, criticalOptions.criticalRate, criticalDiceSides, adjustedCriticalRate);
@@ -3057,6 +3224,261 @@ class DiceCalculator {
         success: false,
         error: error.message
       };
+    }
+  }
+  
+  // 带骰子复用的计算方法（优化版本）
+  calculateWithDiceReuse(ast, diceRegistry, criticalOptions) {
+    // 首先计算所有独立骰子的分布
+    const diceDistributions = new Map();
+    for (const [id, def] of diceRegistry.entries()) {
+      const distribution = this.calculateBasicDice(def.count, def.sides);
+      diceDistributions.set(id, distribution);
+    }
+    
+    const result = {};
+    
+    // 使用优化的算法：直接计算分布而不是枚举每个个体情况
+    this.calculateDiceReuseFast(diceDistributions, ast, result);
+    
+    const average = this.calculateAverage(result);
+    const totalOutcomes = Object.values(result).reduce((sum, count) => sum + count, 0);
+    
+    return {
+      distribution: result,
+      average,
+      totalOutcomes,
+      success: true,
+      isProbability: false,
+      hasDiceReuse: true
+    };
+  }
+  
+  // 快速计算引用骰值分布
+  calculateDiceReuseFast(diceDistributions, ast, result) {
+    const diceIds = Array.from(diceDistributions.keys());
+    
+    if (diceIds.length === 0) {
+      // 没有引用骰值，正常计算
+      const normalResult = this.evaluate(ast);
+      Object.assign(result, normalResult);
+      return;
+    }
+    
+    // 递归计算所有骰子值组合的分布
+    this.enumerateCombinationsFast(diceDistributions, diceIds, 0, new Map(), 1, ast, result);
+  }
+  
+  // 优化的组合枚举，只处理不同的值组合，不重复处理相同组合
+  enumerateCombinationsFast(diceDistributions, diceIds, index, currentValues, currentWeight, ast, result) {
+    if (index >= diceIds.length) {
+      // 所有骰子都有值了，计算表达式结果
+      this.currentDiceValues = currentValues;
+      const expressionResult = this.evaluateWithFixedDice(ast);
+      delete this.currentDiceValues;
+      
+      // 将结果乘以当前组合的权重并累加
+      if (typeof expressionResult === 'object' && expressionResult.distribution) {
+        // 处理特殊结果类型（如条件表达式）
+        for (const [value, count] of Object.entries(expressionResult.distribution)) {
+          const val = parseFloat(value);
+          result[val] = (result[val] || 0) + count * currentWeight;
+        }
+      } else {
+        // 处理普通分布
+        for (const [value, count] of Object.entries(expressionResult)) {
+          const val = parseFloat(value);
+          result[val] = (result[val] || 0) + count * currentWeight;
+        }
+      }
+      return;
+    }
+    
+    // 处理当前骰子的所有可能值
+    const diceId = diceIds[index];
+    const diceDistribution = diceDistributions.get(diceId);
+    
+    for (const [value, count] of Object.entries(diceDistribution)) {
+      const val = parseInt(value);
+      const newValues = new Map(currentValues);
+      newValues.set(diceId, val);
+      const newWeight = currentWeight * count;
+      
+      // 递归处理下一个骰子
+      this.enumerateCombinationsFast(diceDistributions, diceIds, index + 1, newValues, newWeight, ast, result);
+    }
+  }
+  
+  // 在固定骰子值的情况下评估表达式
+  evaluateWithFixedDice(node) {
+    switch (node.type) {
+      case 'number':
+        return { [node.value]: 1 };
+        
+      case 'dice':
+        // 如果有ID且设置了固定值，使用固定值
+        if (node.id !== undefined && this.currentDiceValues && this.currentDiceValues.has(node.id)) {
+          const value = this.currentDiceValues.get(node.id);
+          return { [value]: 1 };
+        } else {
+          // 没有复用的骰子，正常计算
+          const diceResult = this.calculateBasicDice(node.count, node.sides);
+          if (node.isCriticalDice) {
+            diceResult.isCriticalDice = true;
+          }
+          return diceResult;
+        }
+        
+      case 'dice_ref':
+        // 骰子引用，必须使用固定值
+        if (this.currentDiceValues && this.currentDiceValues.has(node.id)) {
+          const value = this.currentDiceValues.get(node.id);
+          return { [value]: 1 };
+        } else {
+          throw new Error(`引用的骰子 d_${node.id} 没有固定值`);
+        }
+        
+      case 'binary_op':
+        return this.calculateBinaryOpWithFixedDice(node.left, node.right, node.operator);
+        
+      case 'comparison':
+        return this.calculateComparisonWithFixedDice(node.left, node.right, node.operator);
+        
+      case 'conditional':
+        return this.calculateConditionalWithFixedDice(node.condition, node.trueValue, node.falseValue);
+        
+      case 'keep':
+        const expressions = node.expressions || [node.expression];
+        return this.calculateKeepWithFixedDice(expressions, node.count, node.keepType);
+        
+      case 'reroll':
+        return this.calculateReroll(node.dice, node.minValue, node.maxValue, node.maxRerolls);
+        
+      case 'exploding':
+        return this.calculateExploding(node);
+        
+      case 'exploding_sum':
+        return this.calculateExplodingSum(node);
+        
+      case 'critical_double':
+        return this.calculateCriticalDoubleWithFixedDice(node.expression);
+        
+      case 'critical_switch':
+        return this.calculateCriticalSwitchWithFixedDice(node.normalExpression, node.criticalExpression);
+        
+      case 'critical_only':
+        return this.calculateCriticalOnlyWithFixedDice(node.expression);
+        
+      default:
+        throw new Error(`未知节点类型: ${node.type}`);
+    }
+  }
+  
+  // 在固定骰子值下计算二元运算
+  calculateBinaryOpWithFixedDice(left, right, operator) {
+    const leftResult = this.evaluateWithFixedDice(left);
+    const rightResult = this.evaluateWithFixedDice(right);
+    
+    return this.calculateNormalBinaryOp(leftResult, rightResult, operator);
+  }
+  
+  // 在固定骰子值下计算比较
+  calculateComparisonWithFixedDice(left, right, operator) {
+    const leftResult = this.evaluateWithFixedDice(left);
+    const rightResult = this.evaluateWithFixedDice(right);
+    
+    // 对于固定值，比较应该返回确定的结果
+    const leftValue = parseFloat(Object.keys(leftResult)[0]);
+    const rightValue = parseFloat(Object.keys(rightResult)[0]);
+    
+    let success = false;
+    switch (operator) {
+      case '>':
+        success = leftValue > rightValue;
+        break;
+      case '<':
+        success = leftValue < rightValue;
+        break;
+      case '=':
+      case '==':
+        success = leftValue === rightValue;
+        break;
+      case '>=':
+        success = leftValue >= rightValue;
+        break;
+      case '<=':
+        success = leftValue <= rightValue;
+        break;
+    }
+    
+    return {
+      type: 'probability',
+      successProbability: success ? 1 : 0,
+      failureProbability: success ? 0 : 1,
+      successCount: success ? 1 : 0,
+      totalCount: 1,
+      distribution: {
+        1: success ? 1 : 0,
+        0: success ? 0 : 1
+      }
+    };
+  }
+  
+  // 在固定骰子值下计算条件表达式
+  calculateConditionalWithFixedDice(conditionNode, trueValueNode, falseValueNode) {
+    const conditionResult = this.evaluateWithFixedDice(conditionNode);
+    
+    if (conditionResult.type !== 'probability') {
+      throw new Error('条件表达式的条件部分必须是比较操作');
+    }
+    
+    if (conditionResult.successProbability > 0) {
+      // 条件为真
+      return this.evaluateWithFixedDice(trueValueNode);
+    } else {
+      // 条件为假
+      return this.evaluateWithFixedDice(falseValueNode);
+    }
+  }
+  
+  // 在固定骰子值下计算Keep操作
+  calculateKeepWithFixedDice(expressions, keepCount, keepType) {
+    // 这里需要特殊处理，因为我们需要知道具体的骰子值来进行keep操作
+    // 简化实现：如果表达式中没有复用的骰子，按原逻辑处理
+    return this.calculateKeep(expressions, keepCount, keepType);
+  }
+  
+  // 在固定骰子值下计算暴击翻倍
+  calculateCriticalDoubleWithFixedDice(expression) {
+    const result = this.evaluateWithFixedDice(expression);
+    
+    if (this.isCalculatingCritical) {
+      const doubledResult = {};
+      for (const [value, count] of Object.entries(result)) {
+        const val = parseFloat(value);
+        doubledResult[val * 2] = count;
+      }
+      return doubledResult;
+    } else {
+      return result;
+    }
+  }
+  
+  // 在固定骰子值下计算暴击切换
+  calculateCriticalSwitchWithFixedDice(normalExpression, criticalExpression) {
+    if (this.isCalculatingCritical) {
+      return this.evaluateWithFixedDice(criticalExpression);
+    } else {
+      return this.evaluateWithFixedDice(normalExpression);
+    }
+  }
+  
+  // 在固定骰子值下计算暴击专用
+  calculateCriticalOnlyWithFixedDice(expression) {
+    if (this.isCalculatingCritical) {
+      return this.evaluateWithFixedDice(expression);
+    } else {
+      return { 0: 1 };
     }
   }
 }
