@@ -174,9 +174,9 @@ const ResultDisplay = ({ result, formula }) => {
             trueValues={result.trueValues}
             falseValues={result.falseValues}
             condition={result.condition}
-            isCritical={result.isCritical}
-            normalDistribution={result.normalDistribution}
-            criticalDistribution={result.criticalDistribution}
+            isCritical={result.isCritical || result.hasDiceReuse}
+            normalDistribution={result.normalDistribution || result.normalResult}
+            criticalDistribution={result.criticalDistribution || result.criticalResult}
             normalProbability={result.normalProbability}
             criticalProbability={result.criticalProbability}
             isConditionalCritical={result.isConditionalCritical}
@@ -189,12 +189,17 @@ const ResultDisplay = ({ result, formula }) => {
       </Card>
 
       {/* 暴击信息卡片 - 只在暴击模式时显示 */}
-      {result.isCritical && (
+      {(result.isCritical || (result.hasDiceReuse && result.criticalProbability)) && (
         <Card className="border-orange-200">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-orange-600">
               <Zap className="w-5 h-5" />
               暴击系统信息
+              {result.hasDiceReuse && (
+                <Badge variant="outline" className="text-purple-600 border-purple-200">
+                  骰子引用
+                </Badge>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -237,7 +242,7 @@ const ResultDisplay = ({ result, formula }) => {
       )}
 
       {/* 条件暴击信息卡片 - 只在条件暴击判断时显示 */}
-      {result.isConditionalCritical && (
+      {result.isConditionalCritical && result.probabilities && (
         <Card className="border-purple-200">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-purple-600">
@@ -251,19 +256,19 @@ const ResultDisplay = ({ result, formula }) => {
               <div className="text-center p-3 bg-blue-50 rounded-lg">
                 <p className="text-sm text-gray-600">普通命中</p>
                 <p className="text-2xl font-bold text-blue-600">
-                  {(result.probabilities.normalHit * 100).toFixed(2)}%
+                  {((result.probabilities.normalHit || 0) * 100).toFixed(2)}%
                 </p>
               </div>
               <div className="text-center p-3 bg-red-50 rounded-lg">
                 <p className="text-sm text-gray-600">暴击命中</p>
                 <p className="text-2xl font-bold text-red-600">
-                  {(result.probabilities.criticalHit * 100).toFixed(2)}%
+                  {((result.probabilities.criticalHit || 0) * 100).toFixed(2)}%
                 </p>
               </div>
               <div className="text-center p-3 bg-gray-50 rounded-lg">
                 <p className="text-sm text-gray-600">失败</p>
                 <p className="text-2xl font-bold text-gray-600">
-                  {(result.probabilities.miss * 100).toFixed(2)}%
+                  {((result.probabilities.miss || 0) * 100).toFixed(2)}%
                 </p>
               </div>
             </div>
