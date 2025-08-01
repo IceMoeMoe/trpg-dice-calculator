@@ -2753,6 +2753,8 @@ class DiceCalculator {
   }
 
   // 计算暴击翻倍 #表达式#
+  // 注意：#表达式# 在非暴击时返回正常值，暴击时返回翻倍值
+  // 这与 [表达式] (暴击专用) 不同，后者在非暴击时返回0
   calculateCriticalDouble(expression) {
     const result = this.evaluate(expression);
     
@@ -2785,6 +2787,8 @@ class DiceCalculator {
   }
 
   // 计算暴击专用 [表达式]
+  // 注意：[表达式] 只在暴击时有效，非暴击时返回0
+  // 这与 #表达式# (暴击翻倍) 不同，后者在非暴击时返回正常值，暴击时翻倍
   calculateCriticalOnly(expression) {
     if (this.isCalculatingCritical) {
       // 暴击时：计算表达式
@@ -3757,29 +3761,24 @@ class DiceCalculator {
     const average = this.calculateAverage({ distribution: normalizedResult });
     const totalOutcomes = Object.values(normalizedResult).reduce((sum, count) => sum + count, 0);
     
+    // 对于带骰子引用的情况，不设置条件暴击的特殊字段
+    // 因为这会导致图表显示问题，我们只返回标准的暴击结果
     return {
       distribution: normalizedResult,
       average,
       totalOutcomes,
       success: true,
       hasDiceReuse: true,
-      isConditionalCritical: true,
+      isCritical: true, // 改为标准暴击标记
       diceSides,
       criticalSides,
       originalCriticalRate: originalCriticalRate,
       actualCriticalProbability: criticalProbability * 100,
       criticalProbability: criticalProbability * 100,
-      normalResult: normalDist,
-      criticalResult: criticalDist,
-      // 添加条件暴击需要的分布数据
-      normalHitValues: normalDist,
-      criticalHitValues: criticalDist,
-      missValues: { 0: Math.round(scaleFactor * (1 - normalProbability - criticalProbability)) },
-      probabilities: {
-        normalHit: normalProbability,
-        criticalHit: criticalProbability,
-        miss: 1 - normalProbability - criticalProbability
-      }
+      normalDistribution: normalDist,
+      criticalDistribution: criticalDist,
+      normalProbability,
+      criticalProbability
     };
   }
   
@@ -3912,35 +3911,8 @@ class DiceCalculator {
         // 骰子引用，必须使用固定值
         if (this.currentDiceValues && this.currentDiceValues.has(node.id)) {
           const value = this.currentDiceValues.get(node.id);
-          // 检查被引用的骰子是否是暴击检定骰
-          const diceRegistry = this.currentDiceRegistry || new Map();
-          const diceDef = diceRegistry.get(node.id);
-          
-          if (diceDef && diceDef.isCriticalDice && this.criticalOptions && this.criticalOptions.criticalEnabled) {
-            // 只有当被引用的骰子是暴击检定骰时才进行暴击过滤
-            const diceSides = diceDef.sides;
-            const criticalRate = this.criticalOptions.criticalRate || 5;
-            const criticalSides = Math.max(1, Math.round(diceSides * criticalRate / 100));
-            const criticalThreshold = diceSides - criticalSides + 1;
-            
-            // 如果当前处于暴击计算模式，需要确保只处理实际暴击的值
-            if (this.isCalculatingCritical) {
-              // 只有当骰子值达到暴击阈值时才返回该值，否则返回空分布
-              if (value >= criticalThreshold) {
-                return { [value]: 1 };
-              } else {
-                return {}; // 空分布表示这个组合不应该出现在暴击情况下
-              }
-            } else {
-              // 非暴击模式，只处理非暴击的值
-              if (value < criticalThreshold) {
-                return { [value]: 1 };
-              } else {
-                return {}; // 空分布表示这个组合不应该出现在非暴击情况下
-              }
-            }
-          }
-          // 对于非暴击检定骰的引用，直接返回值
+          // 对于骰子引用，直接返回值，不进行暴击过滤
+          // 暴击过滤应该在骰子复用系统的上层处理，这里只负责返回引用的值
           return { [value]: 1 };
         } else {
           throw new Error(`引用的骰子 d_${node.id} 没有固定值`);
