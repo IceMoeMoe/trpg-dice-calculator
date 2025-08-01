@@ -503,7 +503,8 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
         displayValue: numericValue.toString(), // 现在都是整数，不需要小数显示
         count: count,
         probability: probability.toFixed(2),
-        displayCount: count // 保持原始计数用于显示
+        displayCount: count, // 保持原始计数用于显示
+        probabilityValue: probability // 用于图表显示
       };
     })
     .sort((a, b) => a.value - b.value);
@@ -526,8 +527,8 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
       return (
         <div className="bg-white p-3 border border-gray-300 rounded-lg shadow-lg">
           <p className="font-semibold">{`结果: ${label}`}</p>
+          <p className="text-green-600 font-semibold">{`概率: ${data.probability}%`}</p>
           <p className="text-blue-600">{`次数: ${data.displayCount}`}</p>
-          <p className="text-green-600">{`概率: ${((data.displayCount / totalOutcomes) * 100).toFixed(2)}%`}</p>
           <p className="text-gray-500 text-xs">包含所有向下取整到此值的结果</p>
         </div>
       );
@@ -564,11 +565,13 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
               height={60} // 为倾斜标签预留高度
             />
             <YAxis 
-              label={{ value: '次数', angle: -90, position: 'insideLeft' }}
+              label={{ value: '概率 (%)', angle: -90, position: 'insideLeft' }}
+              tickFormatter={(value) => `${value.toFixed(1)}%`}
+              domain={[0, 'auto']}
             />
             <Tooltip content={<CustomTooltip />} />
             <Bar 
-              dataKey="count" 
+              dataKey="probabilityValue" 
               fill="#3b82f6" 
               radius={[2, 2, 0, 0]}
               stroke="#1e40af"
