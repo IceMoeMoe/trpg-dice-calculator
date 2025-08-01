@@ -1870,7 +1870,7 @@ class DiceCalculator {
       combined: result,
       normalHitValues: normalSuccessDist,
       criticalHitValues: criticalSuccessDist,
-      missValues: failureDist,
+      missValues: conditionResult.failureProbability > 0 ? failureDist : {},
       probabilities: {
         normalHit: conditionResult.normalSuccessProbability,
         criticalHit: conditionResult.criticalSuccessProbability,
@@ -3654,10 +3654,23 @@ class DiceCalculator {
     
     // 处理条件表达式的特殊情况
     if (ast.type === 'conditional' || containsConditional) {
-      return this.handleConditionalCriticalWithDiceReuse(
-        normalResult, criticalResult, normalProbability, criticalProbability, 
-        diceSides, criticalSides, criticalOptions.criticalRate
-      );
+      // 对于引用骰子的条件表达式，我们需要使用与非引用骰子相同的处理方式
+      // 来确保返回正确的条件暴击结果格式
+      
+      if (ast.type === 'conditional') {
+        // 根节点是条件表达式，使用专门的暴击重叠计算
+        // 但需要适应引用骰子的情况
+        return this.handleConditionalCriticalWithDiceReuseForConditional(
+          ast, normalResult, criticalResult, normalProbability, criticalProbability, 
+          diceSides, criticalSides, criticalOptions.criticalRate
+        );
+      } else {
+        // 包含条件表达式的复合表达式
+        return this.handleConditionalCriticalWithDiceReuse(
+          normalResult, criticalResult, normalProbability, criticalProbability, 
+          diceSides, criticalSides, criticalOptions.criticalRate
+        );
+      }
     }
     
     // 合并普通分布结果
@@ -3707,13 +3720,190 @@ class DiceCalculator {
       totalOutcomes,
       success: true,
       hasDiceReuse: true,
+      isCritical: true,
       diceSides,
       criticalSides,
       originalCriticalRate: criticalOptions.criticalRate,
       actualCriticalProbability: criticalProbability * 100,
       criticalProbability: criticalProbability * 100,
-      normalResult: normalDist,
-      criticalResult: criticalDist
+      normalDistribution: normalDist,
+      criticalDistribution: criticalDist,
+      normalProbability,
+      criticalProbability
+    };
+  }
+
+  // 处理引用骰子的条件表达式暴击计算（根节点是条件表达式）
+  handleConditionalCriticalWithDiceReuseForConditional(ast, normalResult, criticalResult, normalProbability, criticalProbability, diceSides, criticalSides, originalCriticalRate) {
+    // 对于引用骰子的条件表达式，我们需要模拟非引用骰子的处理方式
+    // 由于已经计算过了normalResult和criticalResult，我们可以从中提取信息
+    
+    // 从已有结果中提取分布
+    const normalDist = this.extractDistribution(normalResult);
+    const criticalDist = this.extractDistribution(criticalResult);
+    
+    // 由于引用骰子的复杂性，我们使用简化的方法来模拟条件暴击的各个部分
+    // 这里我们假设 normalResult 和 criticalResult 已经包含了条件表达式的完整计算结果
+    
+    // 简化的分离：假设结果分布中的非零值来自成功案例，零值来自失败案例
+    const normalHitValues = {};
+    const criticalHitValues = {};
+    const missValues = {}; // 失败分布，基于实际的失败情况
+    
+    // 从normalDist中提取成功案例（非零值）
+    for (const [value, count] of Object.entries(normalDist)) {
+      const val = parseFloat(value);
+      if (val > 0) {
+        normalHitValues[val] = count;
+      }
+    }
+    
+    // 从criticalDist中提取暴击成功案例（非零值）
+    for (const [value, count] of Object.entries(criticalDist)) {
+      const val = parseFloat(value);
+      if (val > 0) {
+        criticalHitValues[val] = count;
+      }
+    }
+    
+    // 计算实际的条件概率 - 需要真正评估条件表达式来获取准确的成功/失败概率
+    const criticalRate = originalCriticalRate || 5;
+    const criticalSidesCount = Math.max(1, Math.round(20 * criticalRate / 100));
+    const actualCriticalProbability = criticalSidesCount / 20;
+    
+    // 为了获取真实的条件概率，我们需要评估原始的条件表达式
+    // 由于这是对条件表达式的处理，ast应该是conditional类型
+    let actualFailureProbability = 0;
+    let totalSuccessProbability = 1;
+    
+    if (ast.type === 'conditional' && ast.condition) {
+      // 评估原始条件以获取真实的成功/失败概率
+      try {
+        // 临时关闭暴击计算来获取基础条件概率
+        const wasCalculatingCritical = this.isCalculatingCritical;
+        this.isCalculatingCritical = false;
+        
+        const conditionResult = this.evaluate(ast.condition);
+        
+        this.isCalculatingCritical = wasCalculatingCritical;
+        
+        if (conditionResult.type === 'probability') {
+          actualFailureProbability = conditionResult.failureProbability;
+          totalSuccessProbability = conditionResult.successProbability;
+        } else {
+          // 如果不是概率类型，从分布中计算
+          const conditionDist = this.extractDistribution(conditionResult);
+          const conditionTotal = Object.values(conditionDist).reduce((sum, count) => sum + count, 0);
+          const successCount = Object.entries(conditionDist)
+            .filter(([value]) => parseFloat(value) > 0)
+            .reduce((sum, [, count]) => sum + count, 0);
+          
+          totalSuccessProbability = conditionTotal > 0 ? successCount / conditionTotal : 0;
+          actualFailureProbability = 1 - totalSuccessProbability;
+        }
+      } catch (e) {
+        // 如果评估失败，从结果分布中推断
+        const hasZeroInNormal = normalDist.hasOwnProperty('0') && normalDist['0'] > 0;
+        const hasZeroInCritical = criticalDist.hasOwnProperty('0') && criticalDist['0'] > 0;
+        
+        if (hasZeroInNormal || hasZeroInCritical) {
+          const totalNormalCount = Object.values(normalDist).reduce((sum, count) => sum + count, 0);
+          const zeroCountNormal = normalDist['0'] || 0;
+          const zeroCountCritical = criticalDist['0'] || 0;
+          actualFailureProbability = (zeroCountNormal + zeroCountCritical) / (totalNormalCount * 2);
+        }
+        totalSuccessProbability = 1 - actualFailureProbability;
+      }
+    } else {
+      // 不是条件表达式，从分布中推断
+      const hasZeroInNormal = normalDist.hasOwnProperty('0') && normalDist['0'] > 0;
+      const hasZeroInCritical = criticalDist.hasOwnProperty('0') && criticalDist['0'] > 0;
+      
+      if (hasZeroInNormal || hasZeroInCritical) {
+        const totalNormalCount = Object.values(normalDist).reduce((sum, count) => sum + count, 0);
+        const zeroCountNormal = normalDist['0'] || 0;
+        const zeroCountCritical = criticalDist['0'] || 0;
+        actualFailureProbability = (zeroCountNormal + zeroCountCritical) / (totalNormalCount * 2);
+      }
+      totalSuccessProbability = 1 - actualFailureProbability;
+    }
+    
+    const normalSuccessProbability = totalSuccessProbability * (1 - actualCriticalProbability);
+    const criticalSuccessProbability = totalSuccessProbability * actualCriticalProbability;
+    const failureProbability = actualFailureProbability;
+    
+    // 根据实际失败概率设置missValues
+    if (actualFailureProbability > 0) {
+      // 从normalDist和criticalDist中提取失败案例（零值）
+      const zeroInNormal = normalDist['0'] || 0;
+      const zeroInCritical = criticalDist['0'] || 0;
+      if (zeroInNormal > 0 || zeroInCritical > 0) {
+        missValues[0] = Math.max(zeroInNormal, zeroInCritical);
+      } else if (actualFailureProbability >= 0.01) {
+        // 如果有失败概率但分布中没有0值，添加一个象征性的失败值
+        missValues[0] = 1;
+      }
+    }
+    
+    // 合并最终的分布结果
+    const combinedDistribution = {};
+    
+    const normalTotal = Object.values(normalDist).reduce((sum, count) => sum + count, 0);
+    const criticalTotal = Object.values(criticalDist).reduce((sum, count) => sum + count, 0);
+    
+    // 添加普通情况的权重
+    for (const [value, count] of Object.entries(normalDist)) {
+      const val = parseFloat(value);
+      const relativeProbability = count / normalTotal;
+      const weightedCount = relativeProbability * normalProbability;
+      combinedDistribution[val] = (combinedDistribution[val] || 0) + weightedCount;
+    }
+    
+    // 添加暴击情况的权重
+    for (const [value, count] of Object.entries(criticalDist)) {
+      const val = parseFloat(value);
+      const relativeProbability = count / criticalTotal;
+      const weightedCount = relativeProbability * criticalProbability;
+      combinedDistribution[val] = (combinedDistribution[val] || 0) + weightedCount;
+    }
+    
+    // 标准化结果
+    const totalWeight = Object.values(combinedDistribution).reduce((sum, weight) => sum + weight, 0);
+    const normalizedResult = {};
+    const originalTotalCount = Math.max(normalTotal, criticalTotal);
+    const scaleFactor = originalTotalCount;
+    
+    for (const [value, weight] of Object.entries(combinedDistribution)) {
+      const normalizedCount = Math.round(weight * scaleFactor / totalWeight);
+      if (normalizedCount > 0) {
+        normalizedResult[value] = normalizedCount;
+      }
+    }
+    
+    const average = this.calculateAverage({ distribution: normalizedResult });
+    const totalOutcomes = Object.values(normalizedResult).reduce((sum, count) => sum + count, 0);
+    
+    // 返回与非引用骰子相同格式的条件暴击结果
+    return {
+      distribution: normalizedResult,
+      average,
+      totalOutcomes,
+      success: true,
+      hasDiceReuse: true,
+      isConditionalCritical: true,
+      normalHitValues: normalHitValues,
+      criticalHitValues: criticalHitValues,
+      missValues: missValues,
+      probabilities: {
+        normalHit: normalSuccessProbability,
+        criticalHit: criticalSuccessProbability,
+        miss: failureProbability
+      },
+      diceSides,
+      criticalSides,
+      originalCriticalRate: originalCriticalRate,
+      actualCriticalProbability: actualCriticalProbability * 100,
+      criticalProbability: actualCriticalProbability * 100
     };
   }
 
@@ -3761,8 +3951,8 @@ class DiceCalculator {
     const average = this.calculateAverage({ distribution: normalizedResult });
     const totalOutcomes = Object.values(normalizedResult).reduce((sum, count) => sum + count, 0);
     
-    // 对于带骰子引用的情况，不设置条件暴击的特殊字段
-    // 因为这会导致图表显示问题，我们只返回标准的暴击结果
+    // 对于带骰子引用的情况，返回标准的暴击结果格式
+    // 保持与非引用骰子情况的一致性
     return {
       distribution: normalizedResult,
       average,

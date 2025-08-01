@@ -40,9 +40,9 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
         const criticalHitValueCount = criticalHitValues[value] || 0;
         const missValueCount = missValues[value] || 0;
         
-        const normalHitProb = (normalHitValueCount / normalHitTotalCount) * probabilities.normalHit;
-        const criticalHitProb = (criticalHitValueCount / criticalHitTotalCount) * probabilities.criticalHit;
-        const missProb = (missValueCount / missTotalCount) * probabilities.miss;
+        const normalHitProb = normalHitTotalCount > 0 ? (normalHitValueCount / normalHitTotalCount) * probabilities.normalHit : 0;
+        const criticalHitProb = criticalHitTotalCount > 0 ? (criticalHitValueCount / criticalHitTotalCount) * probabilities.criticalHit : 0;
+        const missProb = missTotalCount > 0 ? (missValueCount / missTotalCount) * probabilities.miss : 0;
         const totalProb = normalHitProb + criticalHitProb + missProb;
         
         return {
@@ -54,7 +54,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
           normalHitProbability: (normalHitProb * 100).toFixed(2),
           criticalHitProbability: (criticalHitProb * 100).toFixed(2),
           missProbability: (missProb * 100).toFixed(2),
-          totalProbability: (totalProb * 100).toFixed(2)
+          totalProbability: isNaN(totalProb) ? '0.00' : (totalProb * 100).toFixed(2)
         };
       });
 
@@ -127,15 +127,17 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
               stroke="#dc2626"
               strokeWidth={1}
             />
-            <Bar 
-              dataKey="missCount" 
-              stackId="a"
-              fill="#6b7280" 
-              name="失败"
-              radius={[2, 2, 0, 0]}
-              stroke="#4b5563"
-              strokeWidth={1}
-            />
+            {probabilities.miss > 0 && (
+              <Bar 
+                dataKey="missCount" 
+                stackId="a"
+                fill="#6b7280" 
+                name="失败"
+                radius={[2, 2, 0, 0]}
+                stroke="#4b5563"
+                strokeWidth={1}
+              />
+            )}
           </BarChart>
         </ResponsiveContainer>
       </div>

@@ -174,7 +174,7 @@ const ResultDisplay = ({ result, formula }) => {
             trueValues={result.trueValues}
             falseValues={result.falseValues}
             condition={result.condition}
-            isCritical={result.isCritical || result.hasDiceReuse}
+            isCritical={result.isCritical}
             normalDistribution={result.normalDistribution || result.normalResult}
             criticalDistribution={result.criticalDistribution || result.criticalResult}
             normalProbability={result.normalProbability}
