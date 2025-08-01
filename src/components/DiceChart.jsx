@@ -3,11 +3,43 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, falseValues, condition, isCritical, normalDistribution, criticalDistribution, normalProbability, criticalProbability, isConditionalCritical, normalHitValues, criticalHitValues, missValues, probabilities }) => {
   // 如果是条件暴击表达式，处理分离的数据
   if (isConditionalCritical && normalHitValues && criticalHitValues && missValues && probabilities) {
-    // 获取所有可能的结果值
+    // 合并小数到整数 - 对所有三种值分别处理
+    const mergedNormalHitValues = {};
+    const mergedCriticalHitValues = {};
+    const mergedMissValues = {};
+    
+    Object.entries(normalHitValues).forEach(([value, count]) => {
+      const flooredValue = Math.floor(parseFloat(value));
+      if (mergedNormalHitValues[flooredValue]) {
+        mergedNormalHitValues[flooredValue] += count;
+      } else {
+        mergedNormalHitValues[flooredValue] = count;
+      }
+    });
+    
+    Object.entries(criticalHitValues).forEach(([value, count]) => {
+      const flooredValue = Math.floor(parseFloat(value));
+      if (mergedCriticalHitValues[flooredValue]) {
+        mergedCriticalHitValues[flooredValue] += count;
+      } else {
+        mergedCriticalHitValues[flooredValue] = count;
+      }
+    });
+    
+    Object.entries(missValues).forEach(([value, count]) => {
+      const flooredValue = Math.floor(parseFloat(value));
+      if (mergedMissValues[flooredValue]) {
+        mergedMissValues[flooredValue] += count;
+      } else {
+        mergedMissValues[flooredValue] = count;
+      }
+    });
+    
+    // 获取所有可能的结果值（已经是整数）
     const allValues = new Set([
-      ...Object.keys(normalHitValues).map(v => parseFloat(v)),
-      ...Object.keys(criticalHitValues).map(v => parseFloat(v)),
-      ...Object.keys(missValues).map(v => parseFloat(v))
+      ...Object.keys(mergedNormalHitValues).map(v => parseFloat(v)),
+      ...Object.keys(mergedCriticalHitValues).map(v => parseFloat(v)),
+      ...Object.keys(mergedMissValues).map(v => parseFloat(v))
     ]);
     
     // 只对非零值创建连续范围，零值单独处理
@@ -30,15 +62,15 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
     }
     
     // 计算正确的概率分布
-    const normalHitTotalCount = Object.values(normalHitValues).reduce((sum, count) => sum + count, 0);
-    const criticalHitTotalCount = Object.values(criticalHitValues).reduce((sum, count) => sum + count, 0);
-    const missTotalCount = Object.values(missValues).reduce((sum, count) => sum + count, 0);
+    const normalHitTotalCount = Object.values(mergedNormalHitValues).reduce((sum, count) => sum + count, 0);
+    const criticalHitTotalCount = Object.values(mergedCriticalHitValues).reduce((sum, count) => sum + count, 0);
+    const missTotalCount = Object.values(mergedMissValues).reduce((sum, count) => sum + count, 0);
     
     const chartData = continuousValues
       .map(value => {
-        const normalHitValueCount = normalHitValues[value] || 0;
-        const criticalHitValueCount = criticalHitValues[value] || 0;
-        const missValueCount = missValues[value] || 0;
+        const normalHitValueCount = mergedNormalHitValues[value] || 0;
+        const criticalHitValueCount = mergedCriticalHitValues[value] || 0;
+        const missValueCount = mergedMissValues[value] || 0;
         
         const normalHitProb = normalHitTotalCount > 0 ? (normalHitValueCount / normalHitTotalCount) * probabilities.normalHit : 0;
         const criticalHitProb = criticalHitTotalCount > 0 ? (criticalHitValueCount / criticalHitTotalCount) * probabilities.criticalHit : 0;
@@ -77,6 +109,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
             {parseFloat(data.missProbability) > 0 && (
               <p className="text-gray-600">{`失败: ${data.missProbability}%`}</p>
             )}
+            <p className="text-gray-500 text-xs">包含所有向下取整到此值的结果</p>
           </div>
         );
       }
@@ -145,10 +178,32 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
   }
   // 如果是暴击表达式，处理分离的数据
   if (isCritical && normalDistribution && criticalDistribution) {
-    // 获取所有可能的结果值
+    // 合并小数到整数 - 对 normalDistribution 和 criticalDistribution 分别处理
+    const mergedNormalDistribution = {};
+    const mergedCriticalDistribution = {};
+    
+    Object.entries(normalDistribution).forEach(([value, count]) => {
+      const flooredValue = Math.floor(parseFloat(value));
+      if (mergedNormalDistribution[flooredValue]) {
+        mergedNormalDistribution[flooredValue] += count;
+      } else {
+        mergedNormalDistribution[flooredValue] = count;
+      }
+    });
+    
+    Object.entries(criticalDistribution).forEach(([value, count]) => {
+      const flooredValue = Math.floor(parseFloat(value));
+      if (mergedCriticalDistribution[flooredValue]) {
+        mergedCriticalDistribution[flooredValue] += count;
+      } else {
+        mergedCriticalDistribution[flooredValue] = count;
+      }
+    });
+    
+    // 获取所有可能的结果值（已经是整数）
     const allValues = new Set([
-      ...Object.keys(normalDistribution).map(v => parseFloat(v)),
-      ...Object.keys(criticalDistribution).map(v => parseFloat(v))
+      ...Object.keys(mergedNormalDistribution).map(v => parseFloat(v)),
+      ...Object.keys(mergedCriticalDistribution).map(v => parseFloat(v))
     ]);
     
     // 只对非零值创建连续范围，零值单独处理
@@ -171,15 +226,15 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
     }
     
     // 计算总的普通和暴击出现次数
-    const normalTotalCount = Object.values(normalDistribution).reduce((sum, count) => sum + count, 0);
-    const criticalTotalCount = Object.values(criticalDistribution).reduce((sum, count) => sum + count, 0);
+    const normalTotalCount = Object.values(mergedNormalDistribution).reduce((sum, count) => sum + count, 0);
+    const criticalTotalCount = Object.values(mergedCriticalDistribution).reduce((sum, count) => sum + count, 0);
     
     // 计算正确的总概率分布
     const totalPossible = normalTotalCount + criticalTotalCount;
     const chartData = continuousValues
       .map(value => {
-        const normalValueCount = normalDistribution[value] || 0;
-        const criticalValueCount = criticalDistribution[value] || 0;
+        const normalValueCount = mergedNormalDistribution[value] || 0;
+        const criticalValueCount = mergedCriticalDistribution[value] || 0;
         
         // 计算每个值的概率百分比
         const normalProbabilityPercent = (normalValueCount / normalTotalCount) * normalProbability * 100;
@@ -216,6 +271,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
                 <p className="text-red-600">{`暴击概率: ${criticalData.value.toFixed(2)}%`}</p>
               </>
             )}
+            <p className="text-gray-500 text-xs">包含所有向下取整到此值的结果</p>
           </div>
         );
       }
@@ -270,10 +326,32 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
   }
   // 如果是条件表达式，处理分离的数据
   if (isConditional && trueValues && falseValues && condition) {
-    // 获取所有可能的结果值
+    // 合并小数到整数 - 对 trueValues 和 falseValues 分别处理
+    const mergedTrueValues = {};
+    const mergedFalseValues = {};
+    
+    Object.entries(trueValues).forEach(([value, count]) => {
+      const flooredValue = Math.floor(parseFloat(value));
+      if (mergedTrueValues[flooredValue]) {
+        mergedTrueValues[flooredValue] += count;
+      } else {
+        mergedTrueValues[flooredValue] = count;
+      }
+    });
+    
+    Object.entries(falseValues).forEach(([value, count]) => {
+      const flooredValue = Math.floor(parseFloat(value));
+      if (mergedFalseValues[flooredValue]) {
+        mergedFalseValues[flooredValue] += count;
+      } else {
+        mergedFalseValues[flooredValue] = count;
+      }
+    });
+    
+    // 获取所有可能的结果值（已经是整数）
     const allValues = new Set([
-      ...Object.keys(trueValues).map(v => parseInt(v)),
-      ...Object.keys(falseValues).map(v => parseInt(v))
+      ...Object.keys(mergedTrueValues).map(v => parseInt(v)),
+      ...Object.keys(mergedFalseValues).map(v => parseInt(v))
     ]);
     
     // 确保至少包含0和1，避免空数组
@@ -308,8 +386,8 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
     }
     
     // 计算正确的概率分布
-    const trueTotalCount = Object.values(trueValues).reduce((sum, count) => sum + count, 0) || 1;
-    const falseTotalCount = Object.values(falseValues).reduce((sum, count) => sum + count, 0) || 1;
+    const trueTotalCount = Object.values(mergedTrueValues).reduce((sum, count) => sum + count, 0) || 1;
+    const falseTotalCount = Object.values(mergedFalseValues).reduce((sum, count) => sum + count, 0) || 1;
     
     // 确保有数据
     if (trueTotalCount === 0 && falseTotalCount === 0) {
@@ -322,8 +400,8 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
     
     const chartData = continuousValues
       .map(value => {
-        const trueValueCount = trueValues[value] || 0;
-        const falseValueCount = falseValues[value] || 0;
+        const trueValueCount = mergedTrueValues[value] || 0;
+        const falseValueCount = mergedFalseValues[value] || 0;
         
         // 计算每个值的概率百分比
         const trueProbabilityPercent = (trueValueCount / trueTotalCount) * condition.successProbability * 100;
@@ -357,6 +435,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
             {parseFloat(data.falseProbability) > 0 && (
               <p className="text-blue-300">{`条件为假: ${data.falseProbability}%`}</p>
             )}
+            <p className="text-gray-500 text-xs">包含所有向下取整到此值的结果</p>
           </div>
         );
       }
@@ -402,14 +481,26 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
     );
   }
 
-  // 原有的普通分布图表逻辑
-  const chartData = Object.entries(distribution)
+  // 原有的普通分布图表逻辑 - 合并小数到整数
+  // 首先将小数向下取整并合并计数
+  const mergedDistribution = {};
+  Object.entries(distribution).forEach(([value, count]) => {
+    const numericValue = parseFloat(value);
+    const flooredValue = Math.floor(numericValue);
+    if (mergedDistribution[flooredValue]) {
+      mergedDistribution[flooredValue] += count;
+    } else {
+      mergedDistribution[flooredValue] = count;
+    }
+  });
+
+  const chartData = Object.entries(mergedDistribution)
     .map(([value, count]) => {
       const probability = (count / totalOutcomes) * 100;
       const numericValue = parseFloat(value);
       return {
         value: numericValue,
-        displayValue: numericValue % 1 === 0 ? numericValue.toString() : numericValue.toFixed(2),
+        displayValue: numericValue.toString(), // 现在都是整数，不需要小数显示
         count: count,
         probability: probability.toFixed(2),
         displayCount: count // 保持原始计数用于显示
@@ -437,6 +528,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
           <p className="font-semibold">{`结果: ${label}`}</p>
           <p className="text-blue-600">{`次数: ${data.displayCount}`}</p>
           <p className="text-green-600">{`概率: ${((data.displayCount / totalOutcomes) * 100).toFixed(2)}%`}</p>
+          <p className="text-gray-500 text-xs">包含所有向下取整到此值的结果</p>
         </div>
       );
     }
