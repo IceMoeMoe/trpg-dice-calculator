@@ -1748,6 +1748,10 @@ class DiceCalculator {
       const diceInfo = this.getDiceInfoFromCondition(conditionNode);
       const diceSides = diceInfo.sides;
       
+      // 判断暴击检定骰在哪一侧
+      const leftHasCriticalDice = this.containsCriticalDice(conditionNode.left);
+      const rightHasCriticalDice = this.containsCriticalDice(conditionNode.right);
+      
       let totalSuccessCount = 0;
       let totalCriticalSuccessCount = 0;
       let totalFailureCount = 0;
@@ -1784,8 +1788,16 @@ class DiceCalculator {
           }
           
           if (success) {
-            // 判断是否为暴击 - 统一使用骰面值判断
-            const isCritical = leftVal >= criticalThreshold;
+            // 判断是否为暴击 - 需要检查暴击检定骰在哪一侧
+            let isCritical = false;
+            if (leftHasCriticalDice) {
+              // 暴击检定骰在左侧，检查左侧值
+              isCritical = leftVal >= criticalThreshold;
+            } else if (rightHasCriticalDice) {
+              // 暴击检定骰在右侧，检查右侧值
+              isCritical = rightValue >= criticalThreshold;
+            }
+            
             if (isCritical) {
               totalCriticalSuccessCount += leftCount;
             } else {
@@ -1793,6 +1805,57 @@ class DiceCalculator {
             }
           } else {
             totalFailureCount += leftCount;
+          }
+        }
+      } else if (Object.keys(leftDistribution).length === 1 && Object.keys(leftDistribution)[0] !== undefined) {
+        // 如果左边是单个数值，右边是分布
+        const leftValue = parseInt(Object.keys(leftDistribution)[0]);
+        
+        // 计算暴击对应的骰面范围
+        const criticalSides = Math.max(1, Math.round(diceSides * this.criticalOptions.criticalRate / 100));
+        const criticalThreshold = diceSides - criticalSides + 1;
+        
+        for (const [rightValue, rightCount] of Object.entries(rightDistribution)) {
+          const rightVal = parseInt(rightValue);
+          
+          let success = false;
+          switch (conditionNode.operator) {
+            case '>':
+              success = leftValue > rightVal;
+              break;
+            case '<':
+              success = leftValue < rightVal;
+              break;
+            case '=':
+            case '==':
+              success = leftValue === rightVal;
+              break;
+            case '>=':
+              success = leftValue >= rightVal;
+              break;
+            case '<=':
+              success = leftValue <= rightVal;
+              break;
+          }
+          
+          if (success) {
+            // 判断是否为暴击 - 需要检查暴击检定骰在哪一侧
+            let isCritical = false;
+            if (leftHasCriticalDice) {
+              // 暴击检定骰在左侧，检查左侧值
+              isCritical = leftValue >= criticalThreshold;
+            } else if (rightHasCriticalDice) {
+              // 暴击检定骰在右侧，检查右侧值
+              isCritical = rightVal >= criticalThreshold;
+            }
+            
+            if (isCritical) {
+              totalCriticalSuccessCount += rightCount;
+            } else {
+              totalSuccessCount += rightCount;
+            }
+          } else {
+            totalFailureCount += rightCount;
           }
         }
       } else {
@@ -1832,8 +1895,16 @@ class DiceCalculator {
             }
             
             if (success) {
-              // 判断左侧值是否为暴击 - 统一使用骰面值判断
-              const isCritical = leftValue >= criticalThreshold;
+              // 判断是否为暴击 - 需要检查暴击检定骰在哪一侧
+              let isCritical = false;
+              if (leftHasCriticalDice) {
+                // 暴击检定骰在左侧，检查左侧值
+                isCritical = leftValue >= criticalThreshold;
+              } else if (rightHasCriticalDice) {
+                // 暴击检定骰在右侧，检查右侧值
+                isCritical = rightValue >= criticalThreshold;
+              }
+              
               if (isCritical) {
                 totalCriticalSuccessCount += combinedCount;
               } else {
