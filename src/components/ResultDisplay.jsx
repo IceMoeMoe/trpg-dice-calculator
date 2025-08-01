@@ -188,58 +188,7 @@ const ResultDisplay = ({ result, formula }) => {
         </CardContent>
       </Card>
 
-      {/* 暴击信息卡片 - 只在暴击模式时显示 */}
-      {(result.isCritical || (result.hasDiceReuse && result.criticalProbability)) && (
-        <Card className="border-orange-200">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-orange-600">
-              <Zap className="w-5 h-5" />
-              暴击系统信息
-              {result.hasDiceReuse && (
-                <Badge variant="outline" className="text-purple-600 border-purple-200">
-                  骰子引用
-                </Badge>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-3 gap-4 mb-4">
-              <div className="text-center p-3 bg-orange-50 rounded-lg">
-                <p className="text-sm text-gray-600">暴击率</p>
-                <p className="text-2xl font-bold text-orange-600">
-                  {result.criticalRate}%
-                </p>
-              </div>
-              <div className="text-center p-3 bg-blue-50 rounded-lg">
-                <p className="text-sm text-gray-600">普通概率</p>
-                <p className="text-2xl font-bold text-blue-600">
-                  {(result.normalProbability * 100).toFixed(1)}%
-                </p>
-              </div>
-              <div className="text-center p-3 bg-red-50 rounded-lg">
-                <p className="text-sm text-gray-600">暴击概率</p>
-                <p className="text-2xl font-bold text-red-600">
-                  {(result.criticalProbability * 100).toFixed(1)}%
-                </p>
-              </div>
-            </div>
-            <div className="text-sm text-gray-600">
-              <p>
-                • <span className="inline-block w-3 h-3 bg-blue-500 rounded mr-2"></span>
-                蓝色表示普通情况的结果分布
-              </p>
-              <p>
-                • <span className="inline-block w-3 h-3 bg-red-500 rounded mr-2"></span>
-                红色表示暴击情况的结果分布
-              </p>
-              <p>
-                • <span className="inline-block w-3 h-3 bg-purple-500 rounded mr-2"></span>
-                紫色表示合并后的最终结果分布
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+
 
       {/* 条件暴击信息卡片 - 只在条件暴击判断时显示 */}
       {result.isConditionalCritical && result.probabilities && (
