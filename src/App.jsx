@@ -168,6 +168,10 @@ function App() {
                   <span>N个M面骰子，如 <code className="text-blue-600">2d6</code></span>
                 </div>
                 <div className="flex items-start gap-2">
+                  <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">D</code>
+                  <span>大写D标识该骰用作暴击检定，如 <code className="text-blue-600">D20</code></span>
+                </div>
+                <div className="flex items-start gap-2">
                   <code className="bg-blue-100 px-2 py-1 rounded text-blue-800 font-mono whitespace-nowrap">kh(NdM)</code>
                   <span>取最高值，如 <code className="text-blue-600">kh(2d20),kh(1d8;1d10),kh(4d6r1~2e1)</code></span>
                 </div>
