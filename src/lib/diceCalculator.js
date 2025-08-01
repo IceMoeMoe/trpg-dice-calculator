@@ -1695,6 +1695,58 @@ class DiceCalculator {
     }
   }
 
+  // 递归检查表达式中是否包含条件表达式
+  containsConditionalExpression(node) {
+    if (!node) return false;
+    
+    if (node.type === 'conditional' || node.type === 'comparison') {
+      return true;
+    }
+    
+    if (node.type === 'binary_op') {
+      return this.containsConditionalExpression(node.left) || this.containsConditionalExpression(node.right);
+    }
+    
+    if (node.type === 'keep' && node.expressions) {
+      return node.expressions.some(expr => this.containsConditionalExpression(expr));
+    }
+    
+    if (node.type === 'reroll' && node.dice) {
+      return this.containsConditionalExpression(node.dice);
+    }
+    
+    if (node.type === 'exploding' || node.type === 'exploding_sum') {
+      return this.containsConditionalExpression(node.baseExpression);
+    }
+    
+    if (node.type === 'critical_double' && node.expression) {
+      return this.containsConditionalExpression(node.expression);
+    }
+    
+    if (node.type === 'critical_switch') {
+      return this.containsConditionalExpression(node.normalExpression) || 
+             this.containsConditionalExpression(node.criticalExpression);
+    }
+    
+    if (node.type === 'critical_only' && node.expression) {
+      return this.containsConditionalExpression(node.expression);
+    }
+    
+    if (node.condition) {
+      return this.containsConditionalExpression(node.condition);
+    }
+    
+    if (node.trueValue) {
+      return this.containsConditionalExpression(node.trueValue);
+    }
+    
+    if (node.falseValue) {
+      return this.containsConditionalExpression(node.falseValue);
+    }
+    
+    return false;
+  }
+
   // 递归检查表达式中是否包含暴击检定骰
   containsCriticalDice(node) {
     if (node.type === 'dice' && node.isCriticalDice) {
@@ -1708,6 +1760,14 @@ class DiceCalculator {
     }
     if (node.type === 'keep' && node.expressions) {
       return node.expressions.some(expr => this.containsCriticalDice(expr));
+    }
+    if (node.type === 'conditional') {
+      return this.containsCriticalDice(node.condition) || 
+             this.containsCriticalDice(node.trueValue) || 
+             this.containsCriticalDice(node.falseValue);
+    }
+    if (node.type === 'comparison') {
+      return this.containsCriticalDice(node.left) || this.containsCriticalDice(node.right);
     }
     if (node.left && this.containsCriticalDice(node.left)) {
       return true;
@@ -2660,6 +2720,10 @@ class DiceCalculator {
       case 'number':
         return { [node.value]: 1 };
         
+      case 'distribution':
+        // 处理特殊的分布节点
+        return node.distribution;
+        
       case 'dice':
         // 新的骰子复用系统下，每个骰子都应该正常计算
         const diceResult = this.calculateBasicDice(node.count, node.sides);
@@ -2847,9 +2911,12 @@ class DiceCalculator {
     this.isCalculatingCritical = true;
     const criticalResult = this.evaluate(ast);
     
+    // 检查是否包含条件表达式（递归检查）
+    const containsConditional = this.containsConditionalExpression(ast);
+    
     // 处理不同类型的结果
-    if (normalResult.type === 'conditional' || criticalResult.type === 'conditional' || ast.type === 'comparison') {
-      // 如果是条件表达式，使用专门的暴击重叠计算
+    if (ast.type === 'conditional' || ast.type === 'comparison') {
+      // 如果根节点就是条件表达式，使用专门的暴击重叠计算
       if (ast.type === 'conditional') {
         const baseConditionResult = this.evaluate(ast.condition);
         const conditionalCriticalResult = this.calculateConditionalWithCriticalOverlap(
@@ -2908,8 +2975,24 @@ class DiceCalculator {
           criticalProbability: conditionalCriticalResult.actualCriticalProbability * 100
         };
       }
+    }
+    
+    // 对于包含条件表达式但根节点不是条件表达式的情况（如复合表达式），
+    // 需要使用特殊的处理逻辑
+    if (containsConditional) {
+      // 对于包含条件表达式的复合表达式，使用条件暴击处理
+      // 这种情况下需要模拟条件暴击的计算逻辑
+      return this.calculateComplexConditionalCritical(ast, normalProbability, criticalProbability, actualDiceSides, actualCriticalSides, originalCriticalRate);
+    }
+    
+    // 检查计算结果中是否包含条件类型
+    if (normalResult.type === 'conditional' || criticalResult.type === 'conditional') {
+      // 使用标准的条件暴击处理
+      const hasConditionalResults = normalResult.type === 'conditional' || criticalResult.type === 'conditional';
       
-      return this.handleConditionalCritical(normalResult, criticalResult, normalProbability, criticalProbability, actualDiceSides, actualCriticalSides, originalCriticalRate);
+      if (hasConditionalResults) {
+        return this.handleConditionalCritical(normalResult, criticalResult, normalProbability, criticalProbability, actualDiceSides, actualCriticalSides, originalCriticalRate);
+      }
     }
     
     // 合并普通分布结果
@@ -2964,6 +3047,250 @@ class DiceCalculator {
       actualCriticalProbability: criticalProbability * 100,
       diceSides: actualDiceSides,
       criticalSides: actualCriticalSides,
+      normalDistribution: normalDist,
+      criticalDistribution: criticalDist,
+      normalProbability,
+      criticalProbability
+    };
+  }
+
+  // 处理复杂的条件暴击表达式（如 (D20>10?#1#:0)+d8）
+  calculateComplexConditionalCritical(ast, normalProbability, criticalProbability, diceSides, criticalSides, originalCriticalRate) {
+    // 找到包含暴击检定骰的条件表达式
+    const conditionInfo = this.findCriticalConditionInAST(ast);
+    
+    if (!conditionInfo) {
+      // 如果找不到条件信息，回退到标准处理
+      return this.calculateStandardCritical(ast, normalProbability, criticalProbability, diceSides, criticalSides, originalCriticalRate);
+    }
+    
+    const { conditionNode, trueValueNode, falseValueNode } = conditionInfo;
+    
+    // 使用条件暴击重叠计算
+    const baseConditionResult = this.evaluateConditionWithCritical(conditionNode, criticalProbability);
+    
+    // 计算各种情况下的结果分布
+    this.isCalculatingCritical = false;
+    const normalSuccessResult = this.evaluate(trueValueNode);
+    const failureResult = this.evaluate(falseValueNode);
+    
+    this.isCalculatingCritical = true;
+    const criticalSuccessResult = this.evaluate(trueValueNode);
+    
+    // 计算完整表达式在不同情况下的分布
+    const normalSuccessFullDist = this.evaluateExpressionWithSubstitution(ast, conditionInfo, normalSuccessResult);
+    const criticalSuccessFullDist = this.evaluateExpressionWithSubstitution(ast, conditionInfo, criticalSuccessResult);
+    const failureFullDist = this.evaluateExpressionWithSubstitution(ast, conditionInfo, failureResult);
+    
+    // 提取各分布数据
+    const normalSuccessDist = this.extractDistribution(normalSuccessFullDist);
+    const criticalSuccessDist = this.extractDistribution(criticalSuccessFullDist);
+    const failureDist = this.extractDistribution(failureFullDist);
+    
+    // 合并结果
+    const scaleFactor = 1000; // 使用固定的缩放因子
+    const result = {};
+    
+    // 普通成功的贡献
+    const normalSuccessCount = Math.round(scaleFactor * baseConditionResult.normalSuccessProbability);
+    if (normalSuccessCount > 0) {
+      const normalSuccessTotal = Object.values(normalSuccessDist).reduce((sum, count) => sum + count, 0);
+      for (const [value, count] of Object.entries(normalSuccessDist)) {
+        const val = parseFloat(value);
+        const relativeProbability = normalSuccessTotal > 0 ? count / normalSuccessTotal : 0;
+        const weightedCount = Math.round(relativeProbability * normalSuccessCount);
+        if (weightedCount > 0) {
+          result[val] = (result[val] || 0) + weightedCount;
+        }
+      }
+    }
+    
+    // 暴击成功的贡献
+    const criticalSuccessCount = Math.round(scaleFactor * baseConditionResult.criticalSuccessProbability);
+    if (criticalSuccessCount > 0) {
+      const criticalSuccessTotal = Object.values(criticalSuccessDist).reduce((sum, count) => sum + count, 0);
+      for (const [value, count] of Object.entries(criticalSuccessDist)) {
+        const val = parseFloat(value);
+        const relativeProbability = criticalSuccessTotal > 0 ? count / criticalSuccessTotal : 0;
+        const weightedCount = Math.round(relativeProbability * criticalSuccessCount);
+        if (weightedCount > 0) {
+          result[val] = (result[val] || 0) + weightedCount;
+        }
+      }
+    }
+    
+    // 失败的贡献
+    const failureCount = Math.round(scaleFactor * baseConditionResult.failureProbability);
+    if (failureCount > 0) {
+      const failureTotal = Object.values(failureDist).reduce((sum, count) => sum + count, 0);
+      for (const [value, count] of Object.entries(failureDist)) {
+        const val = parseFloat(value);
+        const relativeProbability = failureTotal > 0 ? count / failureTotal : 0;
+        const weightedCount = Math.round(relativeProbability * failureCount);
+        if (weightedCount > 0) {
+          result[val] = (result[val] || 0) + weightedCount;
+        }
+      }
+    }
+    
+    const average = this.calculateAverage({ distribution: result });
+    const totalOutcomes = Object.values(result).reduce((sum, count) => sum + count, 0);
+    
+    return {
+      distribution: result,
+      average,
+      totalOutcomes,
+      success: true,
+      isConditionalCritical: true,
+      normalHitValues: normalSuccessDist,
+      criticalHitValues: criticalSuccessDist,
+      missValues: failureDist,
+      probabilities: {
+        normalHit: baseConditionResult.normalSuccessProbability,
+        criticalHit: baseConditionResult.criticalSuccessProbability,
+        miss: baseConditionResult.failureProbability
+      },
+      diceSides,
+      criticalSides,
+      originalCriticalRate,
+      actualCriticalProbability: baseConditionResult.criticalSuccessProbability * 100,
+      criticalProbability: baseConditionResult.criticalSuccessProbability * 100
+    };
+  }
+
+  // 在AST中找到包含暴击检定骰的条件表达式
+  findCriticalConditionInAST(node) {
+    if (!node) return null;
+    
+    // 如果当前节点就是包含暴击检定骰的条件表达式
+    if (node.type === 'conditional' && this.containsCriticalDice(node.condition)) {
+      return {
+        conditionNode: node.condition,
+        trueValueNode: node.trueValue,
+        falseValueNode: node.falseValue,
+        fullNode: node
+      };
+    }
+    
+    // 递归搜索子节点
+    if (node.type === 'binary_op') {
+      const leftResult = this.findCriticalConditionInAST(node.left);
+      if (leftResult) return leftResult;
+      
+      const rightResult = this.findCriticalConditionInAST(node.right);
+      if (rightResult) return rightResult;
+    }
+    
+    if (node.expressions) {
+      for (const expr of node.expressions) {
+        const result = this.findCriticalConditionInAST(expr);
+        if (result) return result;
+      }
+    }
+    
+    return null;
+  }
+
+  // 计算表达式，将条件部分替换为指定的结果
+  evaluateExpressionWithSubstitution(ast, conditionInfo, substitutionResult) {
+    // 创建AST的副本，将条件表达式替换为替换结果
+    const substitutedAST = this.substituteNodeInAST(ast, conditionInfo.fullNode, substitutionResult);
+    return this.evaluate(substitutedAST);
+  }
+
+  // 在AST中替换指定节点
+  substituteNodeInAST(ast, targetNode, substitutionResult) {
+    if (ast === targetNode) {
+      // 创建一个表示固定结果的节点
+      return this.createDistributionNode(substitutionResult);
+    }
+    
+    if (ast.type === 'binary_op') {
+      return {
+        ...ast,
+        left: this.substituteNodeInAST(ast.left, targetNode, substitutionResult),
+        right: this.substituteNodeInAST(ast.right, targetNode, substitutionResult)
+      };
+    }
+    
+    // 对其他节点类型，保持原样
+    return ast;
+  }
+
+  // 创建表示分布结果的节点
+  createDistributionNode(distributionResult) {
+    const dist = this.extractDistribution(distributionResult);
+    const values = Object.keys(dist).map(Number);
+    
+    if (values.length === 1) {
+      // 如果只有一个值，创建数字节点
+      return { type: 'number', value: values[0] };
+    } else {
+      // 如果有多个值，创建一个特殊的分布节点
+      return { 
+        type: 'distribution', 
+        distribution: dist,
+        // 这是一个特殊节点类型，需要在evaluate中处理
+      };
+    }
+  }
+
+  // 标准暴击计算（作为回退方案）
+  calculateStandardCritical(ast, normalProbability, criticalProbability, diceSides, criticalSides, originalCriticalRate) {
+    // 这里实现标准的暴击计算逻辑
+    this.isCalculatingCritical = false;
+    const normalResult = this.evaluate(ast);
+    
+    this.isCalculatingCritical = true;
+    const criticalResult = this.evaluate(ast);
+    
+    // 合并分布
+    const combinedDistribution = {};
+    const normalDist = this.extractDistribution(normalResult);
+    const criticalDist = this.extractDistribution(criticalResult);
+    
+    const normalTotal = Object.values(normalDist).reduce((sum, count) => sum + count, 0);
+    const criticalTotal = Object.values(criticalDist).reduce((sum, count) => sum + count, 0);
+    
+    for (const [value, count] of Object.entries(normalDist)) {
+      const val = parseFloat(value);
+      const relativeProbability = count / normalTotal;
+      const weightedCount = relativeProbability * normalProbability;
+      combinedDistribution[val] = (combinedDistribution[val] || 0) + weightedCount;
+    }
+    
+    for (const [value, count] of Object.entries(criticalDist)) {
+      const val = parseFloat(value);
+      const relativeProbability = count / criticalTotal;
+      const weightedCount = relativeProbability * criticalProbability;
+      combinedDistribution[val] = (combinedDistribution[val] || 0) + weightedCount;
+    }
+    
+    // 标准化结果
+    const totalWeight = Object.values(combinedDistribution).reduce((sum, weight) => sum + weight, 0);
+    const normalizedResult = {};
+    const scaleFactor = normalTotal;
+    
+    for (const [value, weight] of Object.entries(combinedDistribution)) {
+      const normalizedCount = Math.round(weight * scaleFactor / totalWeight);
+      if (normalizedCount > 0) {
+        normalizedResult[value] = normalizedCount;
+      }
+    }
+    
+    const average = this.calculateAverage({ distribution: normalizedResult });
+    const totalOutcomes = Object.values(normalizedResult).reduce((sum, count) => sum + count, 0);
+    
+    return {
+      distribution: normalizedResult,
+      average,
+      totalOutcomes,
+      success: true,
+      isCritical: true,
+      originalCriticalRate,
+      actualCriticalProbability: criticalProbability * 100,
+      diceSides,
+      criticalSides,
       normalDistribution: normalDist,
       criticalDistribution: criticalDist,
       normalProbability,
