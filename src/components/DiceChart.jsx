@@ -178,16 +178,20 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
       .map(value => {
         const normalValueCount = normalDistribution[value] || 0;
         const criticalValueCount = criticalDistribution[value] || 0;
-        const totalValueCount = (normalValueCount * normalProbability) + (criticalValueCount * criticalProbability);
+        
+        // 计算每个值的概率百分比
+        const normalProbabilityPercent = (normalValueCount / normalTotalCount) * normalProbability * 100;
+        const criticalProbabilityPercent = (criticalValueCount / criticalTotalCount) * criticalProbability * 100;
+        const totalProbabilityPercent = normalProbabilityPercent + criticalProbabilityPercent;
         
         return {
           value: value,
-          count: totalValueCount,
-          normalCount: normalValueCount * normalProbability,
-          criticalCount: criticalValueCount * criticalProbability,
-          normalProbability: ((normalValueCount / normalTotalCount) * normalProbability * 100).toFixed(2),
-          criticalProbabilityValue: ((criticalValueCount / criticalTotalCount) * criticalProbability * 100).toFixed(2),
-          totalProbability: ((totalValueCount / (normalTotalCount * normalProbability + criticalTotalCount * criticalProbability)) * 100).toFixed(2)
+          count: totalProbabilityPercent, // 使用百分比作为显示值
+          normalCount: normalProbabilityPercent,
+          criticalCount: criticalProbabilityPercent,
+          normalProbability: normalProbabilityPercent.toFixed(2),
+          criticalProbabilityValue: criticalProbabilityPercent.toFixed(2),
+          totalProbability: totalProbabilityPercent.toFixed(2)
         };
       });
 
@@ -237,6 +241,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
             <YAxis 
               label={{ value: '概率 (%)', angle: -90, position: 'insideLeft' }}
               tickFormatter={(value) => `${value.toFixed(1)}%`}
+              domain={[0, 'auto']}
             />
             <Tooltip content={<CriticalTooltip />} />
             <Legend />
@@ -317,16 +322,20 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
       .map(value => {
         const trueValueCount = trueValues[value] || 0;
         const falseValueCount = falseValues[value] || 0;
-        const totalValueCount = (trueValueCount * condition.successProbability) + (falseValueCount * condition.failureProbability);
+        
+        // 计算每个值的概率百分比
+        const trueProbabilityPercent = (trueValueCount / trueTotalCount) * condition.successProbability * 100;
+        const falseProbabilityPercent = (falseValueCount / falseTotalCount) * condition.failureProbability * 100;
+        const totalProbabilityPercent = trueProbabilityPercent + falseProbabilityPercent;
         
         return {
           value: value,
-          count: Math.max(totalValueCount, 0.1), // 确保有显示值
-          trueCount: trueValueCount * condition.successProbability,
-          falseCount: falseValueCount * condition.failureProbability,
-          trueProbability: ((trueValueCount / trueTotalCount) * condition.successProbability * 100).toFixed(2),
-          falseProbability: ((falseValueCount / falseTotalCount) * condition.failureProbability * 100).toFixed(2),
-          totalProbability: ((totalValueCount) * 100).toFixed(2)
+          count: Math.max(totalProbabilityPercent, 0.01), // 确保有显示值，使用百分比
+          trueCount: trueProbabilityPercent,
+          falseCount: falseProbabilityPercent,
+          trueProbability: trueProbabilityPercent.toFixed(2),
+          falseProbability: falseProbabilityPercent.toFixed(2),
+          totalProbability: totalProbabilityPercent.toFixed(2)
         };
       })
       .filter(item => item.count > 0.01); // 确保显示有意义的数据
@@ -373,6 +382,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
             <YAxis 
               label={{ value: '概率 (%)', angle: -90, position: 'insideLeft' }}
               tickFormatter={(value) => `${value.toFixed(1)}%`}
+              domain={[0, 'auto']}
             />
             <Tooltip content={<ConditionalTooltip />} />
             <Legend />

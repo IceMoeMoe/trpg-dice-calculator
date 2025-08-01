@@ -216,6 +216,7 @@ const FormulaInput = ({ onCalculate, isCalculating }) => {
               <div className="p-3 bg-orange-50 rounded-lg border border-orange-200">
                 <div className="text-xs text-orange-800 space-y-1">
                   <div><strong>暴击语法：</strong></div>
+                  <div><code className="bg-orange-100 px-1 rounded">D20</code> - 用大写D指定暴击检定骰</div>
                   <div><code className="bg-orange-100 px-1 rounded">#表达式#</code> - 暴击时结果翻倍</div>
                   <div><code className="bg-orange-100 px-1 rounded">|普通|暴击|</code> - 暴击时切换表达式</div>
                   <div><code className="bg-orange-100 px-1 rounded">[表达式]</code> - 仅暴击时生效</div>
