@@ -34,7 +34,14 @@ const FormulaInput = ({ onCalculate, isCalculating }) => {
     const conditionalMatch = formula.match(/^([^?]+)\?([^:]+):(.+)$/);
     if (conditionalMatch) {
       const conditionPart = conditionalMatch[1].trim();
-      // 在条件部分查找骰子
+      
+      // 优先查找暴击检定骰（大写D）
+      const criticalDiceMatch = conditionPart.match(/(\d*)D(\d+)/);
+      if (criticalDiceMatch) {
+        return parseInt(criticalDiceMatch[2]);
+      }
+      
+      // 如果没有暴击检定骰，再查找普通骰子（小写d）
       const diceMatch = conditionPart.match(/(\d*)d(\d+)/);
       if (diceMatch) {
         return parseInt(diceMatch[2]);
@@ -42,13 +49,25 @@ const FormulaInput = ({ onCalculate, isCalculating }) => {
     }
     
     // 如果没有条件表达式，查找简单的比较表达式中的骰子
-    // 例如: d20>15, 2d6>=8 等
+    // 优先查找暴击检定骰（大写D）
+    const criticalComparisonMatch = formula.match(/(\d*)D(\d+)\s*[><=!]+/);
+    if (criticalComparisonMatch) {
+      return parseInt(criticalComparisonMatch[2]);
+    }
+    
+    // 再查找普通骰子（小写d）
     const comparisonMatch = formula.match(/(\d*)d(\d+)\s*[><=!]+/);
     if (comparisonMatch) {
       return parseInt(comparisonMatch[2]);
     }
     
-    // 如果都没有找到，则查找第一个出现的骰子
+    // 如果都没有找到，则查找第一个出现的暴击检定骰（大写D）
+    const firstCriticalDiceMatch = formula.match(/(\d*)D(\d+)/);
+    if (firstCriticalDiceMatch) {
+      return parseInt(firstCriticalDiceMatch[2]);
+    }
+    
+    // 最后查找第一个出现的普通骰子（小写d）
     const firstDiceMatch = formula.match(/(\d*)d(\d+)/);
     if (firstDiceMatch) {
       return parseInt(firstDiceMatch[2]);
