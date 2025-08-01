@@ -1740,6 +1740,7 @@ class DiceCalculator {
             case '<':
               success = leftVal < rightValue;
               break;
+            case '=':
             case '==':
               success = leftVal === rightValue;
               break;
@@ -1787,6 +1788,7 @@ class DiceCalculator {
               case '<':
                 success = leftValue < rightValue;
                 break;
+              case '=':
               case '==':
                 success = leftValue === rightValue;
                 break;
@@ -1931,6 +1933,7 @@ class DiceCalculator {
             success = leftVal < rightValue;
             break;
           case '=':
+          case '==':
             success = leftVal === rightValue;
             break;
           case '>=':
@@ -1964,6 +1967,7 @@ class DiceCalculator {
               success = leftVal < rightVal;
               break;
             case '=':
+            case '==':
               success = leftVal === rightVal;
               break;
             case '>=':
