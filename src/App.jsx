@@ -114,7 +114,7 @@ function App() {
                 </div>
                 <div className="flex justify-between items-center p-2 bg-gray-50 rounded text-sm">
                   <span className="font-medium text-gray-700">分段豁免</span>
-                  <code className="text-blue-600 font-mono">d20=20?0:d_1&gt;16?8d6/2:8d6</code>
+                  <code className="text-blue-600 font-mono">kh(d20;d20)=20?0:kh(d_1;d_2)&gt;16?6d6/2:6d6</code>
                 </div>
                 <div className="flex justify-between items-center p-2 bg-orange-50 rounded text-sm">
                   <span className="font-medium text-orange-700">暴击翻倍伤害</span>
