@@ -4651,9 +4651,87 @@ class DiceCalculator {
   
   // 在固定骰子值下计算Keep操作
   calculateKeepWithFixedDice(expressions, keepCount, keepType) {
-    // 这里需要特殊处理，因为我们需要知道具体的骰子值来进行keep操作
-    // 简化实现：如果表达式中没有复用的骰子，按原逻辑处理
-    return this.calculateKeep(expressions, keepCount, keepType);
+    // 如果只有一个表达式，检查是否为传统格式
+    if (expressions.length === 1) {
+      const expr = expressions[0];
+      // 对于传统的单一骰子表达式（如4d6），按原逻辑处理
+      if (expr.type === 'dice') {
+        return this.calculateKeepSingleDice(expr, keepCount, keepType);
+      }
+      // 对于复合表达式（如带重骰的），需要特殊处理
+      return this.calculateKeepComplexWithFixedDice(expr, keepCount, keepType);
+    }
+    
+    // 多个表达式的情况（如kl(d_1;d_2)）
+    return this.calculateKeepMultipleWithFixedDice(expressions, keepCount, keepType);
+  }
+
+  // 计算复合表达式的Keep操作（支持重骰等）- 固定骰子值版本
+  calculateKeepComplexWithFixedDice(expression, keepCount, keepType) {
+    // 首先计算复合表达式的所有可能结果
+    const expressionResult = this.evaluateWithFixedDice(expression);
+    
+    // 对于keep操作，我们需要模拟每种可能的结果情况
+    const result = {};
+    
+    for (const [value, count] of Object.entries(expressionResult)) {
+      const val = parseInt(value);
+      
+      // 对于复合表达式，我们假设每个结果都是从一个"虚拟骰子"中得出的
+      // 因此keep操作直接返回该值
+      if (keepCount >= 1) {
+        result[val] = (result[val] || 0) + count;
+      }
+    }
+    
+    return result;
+  }
+
+  // 计算多个不同表达式的Keep操作 - 固定骰子值版本
+  calculateKeepMultipleWithFixedDice(expressions, keepCount, keepType) {
+    // 计算每个表达式的结果分布 - 使用固定骰子值版本
+    const distributions = expressions.map(expr => this.evaluateWithFixedDice(expr));
+    
+    const result = {};
+    
+    // 生成所有可能的组合
+    function generateMultipleExpressionCombinations(distributions) {
+      if (distributions.length === 1) {
+        const dist = distributions[0];
+        return Object.entries(dist).map(([value, count]) => ({
+          values: [parseInt(value)],
+          count
+        }));
+      }
+      
+      const firstDist = distributions[0];
+      const restCombinations = generateMultipleExpressionCombinations(distributions.slice(1));
+      const combinations = [];
+      
+      for (const [value, count] of Object.entries(firstDist)) {
+        for (const combo of restCombinations) {
+          combinations.push({
+            values: [parseInt(value), ...combo.values],
+            count: count * combo.count
+          });
+        }
+      }
+      
+      return combinations;
+    }
+    
+    const allCombinations = generateMultipleExpressionCombinations(distributions);
+    
+    // 对每个组合应用keep规则
+    for (const combination of allCombinations) {
+      const sorted = [...combination.values].sort((a, b) => keepType === 'highest' ? b - a : a - b);
+      const kept = sorted.slice(0, keepCount);
+      const sum = kept.reduce((acc, val) => acc + val, 0);
+      
+      result[sum] = (result[sum] || 0) + combination.count;
+    }
+    
+    return result;
   }
   
   // 在固定骰子值下计算暴击翻倍
