@@ -1415,7 +1415,14 @@ class DiceCalculator {
       return combineMultipleDice(diceCount - 1, singleOutcomes, newResult);
     }
     
-    return combineMultipleDice(count, singleDiceExplodingOutcomes);
+    const explodingResult = combineMultipleDice(count, singleDiceExplodingOutcomes);
+    
+    // 保留原始骰子的暴击标记
+    if (diceNode.isCriticalDice) {
+      explodingResult.isCriticalDice = true;
+    }
+    
+    return explodingResult;
   }
 
   // 生成单个骰子的爆炸结果分布（成功计数）
@@ -1511,7 +1518,14 @@ class DiceCalculator {
       return combineMultipleDice(diceCount - 1, singleOutcomes, newResult);
     }
     
-    return combineMultipleDice(count, singleDiceExplodingSumOutcomes);
+    const explodingSumResult = combineMultipleDice(count, singleDiceExplodingSumOutcomes);
+    
+    // 保留原始骰子的暴击标记
+    if (diceNode.isCriticalDice) {
+      explodingSumResult.isCriticalDice = true;
+    }
+    
+    return explodingSumResult;
   }
 
   // 生成单个骰子的总和型爆炸结果分布
@@ -1972,6 +1986,21 @@ class DiceCalculator {
       return this.calculateBasicDice(node.count, node.sides);
     }
     
+    // 处理重骰操作 - 返回原始骰子的分布
+    if (node.type === 'reroll' && node.dice && node.dice.isCriticalDice) {
+      return this.calculateBasicDice(node.dice.count, node.dice.sides);
+    }
+    
+    // 处理爆炸骰操作 - 返回原始骰子的分布
+    if (node.type === 'exploding' && node.diceNode && node.diceNode.isCriticalDice) {
+      return this.calculateBasicDice(node.diceNode.count, node.diceNode.sides);
+    }
+    
+    // 处理总和型爆炸骰操作 - 返回原始骰子的分布
+    if (node.type === 'exploding_sum' && node.diceNode && node.diceNode.isCriticalDice) {
+      return this.calculateBasicDice(node.diceNode.count, node.diceNode.sides);
+    }
+    
     if (node.type === 'binary_op') {
       // 对于二元操作，只返回暴击检定骰的部分
       const leftRaw = this.getRawDiceDistribution(node.left);
@@ -2325,6 +2354,35 @@ class DiceCalculator {
     // 如果就是骰子本身，直接比较
     if ((node.type === 'dice' || node.type === 'dice_ref') && node.isCriticalDice) {
       return rawDiceValue === finalResult;
+    }
+    
+    // 对于重骰操作，我们需要检查原始骰子值是否可能通过重骰产生最终结果
+    if (node.type === 'reroll' && node.dice && node.dice.isCriticalDice) {
+      // 对于重骰，原始骰子值有可能通过重骰机制产生任何在范围内的最终结果
+      // 如果原始值在重骰范围内，它可能被重骰成其他值
+      // 如果原始值不在重骰范围内，它保持不变
+      const { minValue, maxValue } = node;
+      if (rawDiceValue >= minValue && rawDiceValue <= maxValue) {
+        // 在重骰范围内，可能产生任何合法的骰子值
+        return finalResult >= 1 && finalResult <= node.dice.sides;
+      } else {
+        // 不在重骰范围内，保持原值
+        return rawDiceValue === finalResult;
+      }
+    }
+    
+    // 对于爆炸骰操作，原始骰子值可能通过爆炸产生更大的结果
+    if (node.type === 'exploding' && node.diceNode && node.diceNode.isCriticalDice) {
+      // 对于爆炸骰，任何原始值都可能产生更大的最终结果
+      // 这里采用简化处理：认为任何原始值都可能产生任何合法的最终结果
+      return finalResult >= 0; // 爆炸骰计算成功数，所以结果应该>=0
+    }
+    
+    // 对于总和型爆炸骰操作
+    if (node.type === 'exploding_sum' && node.diceNode && node.diceNode.isCriticalDice) {
+      // 对于总和型爆炸骰，原始值可能通过爆炸产生更大的总和
+      // 最小可能结果就是原始值本身
+      return finalResult >= rawDiceValue;
     }
     
     // 如果是二元操作
@@ -2788,13 +2846,22 @@ class DiceCalculator {
         return this.calculateKeep(expressions, node.count, node.keepType);
         
       case 'reroll':
-        return this.calculateReroll(node.dice, node.minValue, node.maxValue, node.maxRerolls);
+        const rerollResult = this.calculateReroll(node.dice, node.minValue, node.maxValue, node.maxRerolls);
+        // 保留原始骰子的暴击标记
+        if (node.dice.isCriticalDice) {
+          rerollResult.isCriticalDice = true;
+        }
+        return rerollResult;
         
       case 'exploding':
-        return this.calculateExploding(node);
+        const explodingResult = this.calculateExploding(node);
+        // 暴击标记应该已经在calculateExploding中保留了
+        return explodingResult;
         
       case 'exploding_sum':
-        return this.calculateExplodingSum(node);
+        const explodingSumResult = this.calculateExplodingSum(node);
+        // 暴击标记应该已经在calculateExplodingSum中保留了
+        return explodingSumResult;
         
       case 'comparison':
         return this.calculateComparison(node.left, node.right, node.operator);
