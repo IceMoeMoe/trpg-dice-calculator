@@ -492,7 +492,6 @@ class Parser {
     this.tokens = tokens;
     this.position = 0;
     this.diceIdCounter = 1; // 骰子ID计数器
-    this.criticalDiceIdCounter = 1; // 暴击检定骰ID计数器
     this.diceRegistry = new Map(); // 骰子注册表：id -> dice definition
     this.enableDiceReuse = false; // 是否启用骰子复用模式
   }
@@ -718,11 +717,9 @@ class Parser {
           const sides = sidesToken.value;
           this.advance();
           
-          // 对于暴击检定骰，即使在非复用模式下也分配独立ID以支持局部暴击系统
-          if (isCriticalDice || this.enableDiceReuse) {
-            const diceId = isCriticalDice ? 
-              `crit_${this.criticalDiceIdCounter++}` : 
-              this.diceIdCounter++;
+          // 在骰子复用模式下，每个骰子都需要独立的ID
+          if (this.enableDiceReuse) {
+            const diceId = this.diceIdCounter++;
             const diceDefinition = {
               count: count,
               sides: sides,
@@ -740,7 +737,7 @@ class Parser {
               isCriticalDice: isCriticalDice
             };
           } else {
-            // 普通模式下的普通骰子，不分配ID
+            // 普通模式，不分配ID
             return {
               type: 'dice',
               count: count,
@@ -770,11 +767,9 @@ class Parser {
         const sides = sidesToken.value;
         this.advance();
         
-        // 对于暴击检定骰，即使在非复用模式下也分配独立ID以支持局部暴击系统
-        if (isCriticalDice || this.enableDiceReuse) {
-          const diceId = isCriticalDice ? 
-            `crit_${this.criticalDiceIdCounter++}` : 
-            this.diceIdCounter++;
+        // 在骰子复用模式下，每个骰子都需要独立的ID
+        if (this.enableDiceReuse) {
+          const diceId = this.diceIdCounter++;
           const diceDefinition = {
             count: 1,
             sides: sides,
@@ -792,7 +787,7 @@ class Parser {
             isCriticalDice: isCriticalDice
           };
         } else {
-          // 普通模式下的普通骰子，不分配ID
+          // 普通模式，不分配ID
           return {
             type: 'dice',
             count: 1,
@@ -1086,11 +1081,7 @@ class DiceCalculator {
   constructor() {
     this.diceResults = new Map(); // 存储骰子ID到结果的映射
     this.criticalOptions = null; // 暴击选项
-    this.isCalculatingCritical = false; // 是否正在计算暴击情况（向后兼容）  
-    this.currentDiceRegistry = null; // 当前的骰子注册表
-    this.currentDiceValues = null; // 当前的骰子固定值
-    this.criticalDiceStates = new Map(); // 每个暴击检定骰的独立暴击状态
-    this.globalCriticalId = Symbol('global'); // 全局暴击状态的ID
+    this.isCalculatingCritical = false; // 是否正在计算暴击情况
   }
   
   // 设置骰子结果映射
@@ -1101,86 +1092,6 @@ class DiceCalculator {
   // 获取骰子结果映射
   getDiceResults() {
     return this.diceResults;
-  }
-
-  // 设置特定暴击检定骰的暴击状态
-  setCriticalState(diceId, isCritical) {
-    if (diceId === undefined || diceId === null) {
-      // 对于没有ID的情况，使用全局暴击状态
-      this.criticalDiceStates.set(this.globalCriticalId, isCritical);
-      this.isCalculatingCritical = isCritical; // 向后兼容
-    } else {
-      this.criticalDiceStates.set(diceId, isCritical);
-    }
-  }
-
-  // 获取特定暴击检定骰的暴击状态
-  getCriticalState(diceId) {
-    if (diceId === undefined || diceId === null) {
-      // 对于没有ID的情况，使用全局暴击状态
-      return this.criticalDiceStates.get(this.globalCriticalId) || this.isCalculatingCritical;
-    }
-    return this.criticalDiceStates.get(diceId) || false;
-  }
-
-  // 清除所有暴击状态
-  clearCriticalStates() {
-    this.criticalDiceStates.clear();
-    this.isCalculatingCritical = false;
-  }
-
-  // 获取所有暴击检定骰的ID
-  getAllCriticalDiceIds(ast) {
-    const criticalDiceIds = new Set();
-    
-    const traverse = (node) => {
-      if (!node) return;
-      
-      switch (node.type) {
-        case 'dice':
-          if (node.isCriticalDice) {
-            criticalDiceIds.add(node.id || this.globalCriticalId);
-          }
-          break;
-        case 'dice_ref':
-          if (node.isCriticalDice) {
-            criticalDiceIds.add(node.id);
-          }
-          break;
-        case 'binary_op':
-        case 'comparison':
-          traverse(node.left);
-          traverse(node.right);
-          break;
-        case 'conditional':
-          traverse(node.condition);
-          traverse(node.trueValue);
-          traverse(node.falseValue);
-          break;
-        case 'critical_double':
-        case 'critical_only':
-          traverse(node.expression);
-          break;
-        case 'critical_switch':
-          traverse(node.normalExpression);
-          traverse(node.criticalExpression);
-          break;
-        case 'keep':
-          const expressions = node.expressions || [node.expression];
-          expressions.forEach(expr => traverse(expr));
-          break;
-        case 'reroll':
-          traverse(node.dice);
-          break;
-        case 'exploding':
-        case 'exploding_sum':
-          traverse(node.baseExpression || node.diceNode);
-          break;
-      }
-    };
-    
-    traverse(ast);
-    return Array.from(criticalDiceIds);
   }
   
   // 计算基本掷骰 (NdM)
@@ -1990,6 +1901,60 @@ class DiceCalculator {
       }
     }
     
+    // 收集嵌套条件信息 - 添加这部分逻辑
+    const nestedConditions = [];
+    
+    // 收集当前条件信息（暴击条件特殊处理）
+    const currentCondition = {
+      condition: this.nodeToString(conditionNode),
+      successProbability: conditionResult.normalSuccessProbability + conditionResult.criticalSuccessProbability,
+      failureProbability: conditionResult.failureProbability,
+      normalHitProbability: conditionResult.normalSuccessProbability,
+      criticalHitProbability: conditionResult.criticalSuccessProbability,
+      isCriticalCondition: true,
+      level: 0
+    };
+    nestedConditions.push(currentCondition);
+    
+    // 递归收集普通命中分支中的条件
+    if (normalSuccessResult.nestedConditions) {
+      normalSuccessResult.nestedConditions.forEach(cond => {
+        nestedConditions.push({
+          ...cond,
+          level: cond.level + 1,
+          parentProbability: conditionResult.normalSuccessProbability,
+          conditionalProbability: cond.successProbability * conditionResult.normalSuccessProbability,
+          path: 'normal_hit'
+        });
+      });
+    }
+    
+    // 递归收集暴击命中分支中的条件
+    if (criticalSuccessResult.nestedConditions) {
+      criticalSuccessResult.nestedConditions.forEach(cond => {
+        nestedConditions.push({
+          ...cond,
+          level: cond.level + 1,
+          parentProbability: conditionResult.criticalSuccessProbability,
+          conditionalProbability: cond.successProbability * conditionResult.criticalSuccessProbability,
+          path: 'critical_hit'
+        });
+      });
+    }
+    
+    // 递归收集失败分支中的条件
+    if (failureResult.nestedConditions) {
+      failureResult.nestedConditions.forEach(cond => {
+        nestedConditions.push({
+          ...cond,
+          level: cond.level + 1,
+          parentProbability: conditionResult.failureProbability,
+          conditionalProbability: cond.successProbability * conditionResult.failureProbability,
+          path: 'miss'
+        });
+      });
+    }
+    
     // 计算实际暴击率
     const finalActualCriticalProbability = (conditionResult.normalSuccessProbability + conditionResult.criticalSuccessProbability) > 0 
       ? conditionResult.criticalSuccessProbability / (conditionResult.normalSuccessProbability + conditionResult.criticalSuccessProbability) 
@@ -2008,7 +1973,7 @@ class DiceCalculator {
       },
       actualCriticalProbability: isNaN(finalActualCriticalProbability) ? 0 : finalActualCriticalProbability,
       criticalProbability: criticalRate,
-      nestedConditions: []
+      nestedConditions: nestedConditions
     };
   }
 
@@ -2981,19 +2946,7 @@ class DiceCalculator {
   calculateCriticalDouble(expression) {
     const result = this.evaluate(expression);
     
-    // 检查表达式中是否包含暴击检定骰，如果有则使用特定的暴击状态
-    const criticalDiceIds = this.getAllCriticalDiceIds(expression);
-    let shouldDouble = false;
-    
-    if (criticalDiceIds.length > 0) {
-      // 如果任何相关的暴击检定骰处于暴击状态，则应该翻倍
-      shouldDouble = criticalDiceIds.some(diceId => this.getCriticalState(diceId));
-    } else {
-      // 如果没有暴击检定骰，使用全局暴击状态（向后兼容）
-      shouldDouble = this.isCalculatingCritical;
-    }
-    
-    if (shouldDouble) {
+    if (this.isCalculatingCritical) {
       // 暴击时：结果翻倍
       const doubledResult = {};
       const distribution = this.extractDistribution(result);
@@ -3012,22 +2965,7 @@ class DiceCalculator {
 
   // 计算暴击切换 |普通|暴击|
   calculateCriticalSwitch(normalExpression, criticalExpression) {
-    // 检查表达式中是否包含暴击检定骰
-    const normalCriticalDiceIds = this.getAllCriticalDiceIds(normalExpression);
-    const criticalCriticalDiceIds = this.getAllCriticalDiceIds(criticalExpression);
-    const allCriticalDiceIds = [...new Set([...normalCriticalDiceIds, ...criticalCriticalDiceIds])];
-    
-    let shouldUseCritical = false;
-    
-    if (allCriticalDiceIds.length > 0) {
-      // 如果任何相关的暴击检定骰处于暴击状态，则使用暴击表达式
-      shouldUseCritical = allCriticalDiceIds.some(diceId => this.getCriticalState(diceId));
-    } else {
-      // 如果没有暴击检定骰，使用全局暴击状态（向后兼容）
-      shouldUseCritical = this.isCalculatingCritical;
-    }
-    
-    if (shouldUseCritical) {
+    if (this.isCalculatingCritical) {
       // 暴击时：使用暴击表达式
       return this.evaluate(criticalExpression);
     } else {
@@ -3040,19 +2978,7 @@ class DiceCalculator {
   // 注意：[表达式] 只在暴击时有效，非暴击时返回0
   // 这与 #表达式# (暴击翻倍) 不同，后者在非暴击时返回正常值，暴击时翻倍
   calculateCriticalOnly(expression) {
-    // 检查表达式中是否包含暴击检定骰
-    const criticalDiceIds = this.getAllCriticalDiceIds(expression);
-    let shouldActivate = false;
-    
-    if (criticalDiceIds.length > 0) {
-      // 如果任何相关的暴击检定骰处于暴击状态，则激活
-      shouldActivate = criticalDiceIds.some(diceId => this.getCriticalState(diceId));
-    } else {
-      // 如果没有暴击检定骰，使用全局暴击状态（向后兼容）
-      shouldActivate = this.isCalculatingCritical;
-    }
-    
-    if (shouldActivate) {
+    if (this.isCalculatingCritical) {
       // 暴击时：计算表达式
       return this.evaluate(expression);
     } else {
@@ -3123,25 +3049,6 @@ class DiceCalculator {
 
   // 计算带暴击的结果
   calculateWithCritical(ast, originalCriticalRate, diceSides, criticalSides) {
-    // 获取所有暴击检定骰的ID
-    const criticalDiceIds = this.getAllCriticalDiceIds(ast);
-    
-    if (criticalDiceIds.length === 0) {
-      // 没有暴击检定骰，使用普通计算
-      return this.evaluate(ast);
-    }
-
-    // 如果只有一个暴击检定骰或者使用全局暴击状态，使用原有逻辑
-    if (criticalDiceIds.length === 1 || (criticalDiceIds.length === 1 && criticalDiceIds[0] === this.globalCriticalId)) {
-      return this.calculateWithSingleCriticalDice(ast, originalCriticalRate, diceSides, criticalSides);
-    }
-
-    // 多个独立暴击检定骰的情况
-    return this.calculateWithMultipleCriticalDice(ast, criticalDiceIds, originalCriticalRate, diceSides, criticalSides);
-  }
-
-  // 处理单个暴击检定骰的情况（保持原有逻辑）
-  calculateWithSingleCriticalDice(ast, originalCriticalRate, diceSides, criticalSides) {
     // 计算实际的暴击概率
     const { criticalProbability, diceSides: actualDiceSides, criticalSides: actualCriticalSides } = 
       this.calculateActualCriticalProbability(ast, originalCriticalRate);
@@ -3150,13 +3057,9 @@ class DiceCalculator {
     
     // 分别计算普通情况和暴击情况
     this.isCalculatingCritical = false;
-    this.clearCriticalStates();
     const normalResult = this.evaluate(ast);
     
     this.isCalculatingCritical = true;
-    this.clearCriticalStates();
-    const criticalDiceIds = this.getAllCriticalDiceIds(ast);
-    criticalDiceIds.forEach(diceId => this.setCriticalState(diceId, true));
     const criticalResult = this.evaluate(ast);
     
     // 检查是否包含条件表达式（递归检查）
@@ -3191,7 +3094,8 @@ class DiceCalculator {
           criticalSides: actualCriticalSides,
           originalCriticalRate: originalCriticalRate,
           actualCriticalProbability: conditionalCriticalResult.actualCriticalProbability * 100,
-          criticalProbability: conditionalCriticalResult.actualCriticalProbability * 100
+          criticalProbability: conditionalCriticalResult.actualCriticalProbability * 100,
+          nestedConditions: conditionalCriticalResult.nestedConditions
         };
       } else if (ast.type === 'comparison') {
         // 处理比较表达式（如d20>10）
@@ -3220,7 +3124,8 @@ class DiceCalculator {
           criticalSides: actualCriticalSides,
           originalCriticalRate: originalCriticalRate,
           actualCriticalProbability: conditionalCriticalResult.actualCriticalProbability * 100,
-          criticalProbability: conditionalCriticalResult.actualCriticalProbability * 100
+          criticalProbability: conditionalCriticalResult.actualCriticalProbability * 100,
+          nestedConditions: conditionalCriticalResult.nestedConditions
         };
       }
     }
@@ -3242,98 +3147,63 @@ class DiceCalculator {
         return this.handleConditionalCritical(normalResult, criticalResult, normalProbability, criticalProbability, actualDiceSides, actualCriticalSides, originalCriticalRate);
       }
     }
-
-    // 处理普通的数值分布结果
-    const normalDistribution = this.extractDistribution(normalResult);
-    const criticalDistribution = this.extractDistribution(criticalResult);
     
-    const combined = {};
+    // 合并普通分布结果
+    const combinedDistribution = {};
+    const normalDist = this.extractDistribution(normalResult);
+    const criticalDist = this.extractDistribution(criticalResult);
     
-    // 组合普通和暴击结果
-    for (const [value, count] of Object.entries(normalDistribution)) {
+    // 计算各分布的总计数
+    const normalTotal = Object.values(normalDist).reduce((sum, count) => sum + count, 0);
+    const criticalTotal = Object.values(criticalDist).reduce((sum, count) => sum + count, 0);
+    
+    // 添加普通情况的权重
+    for (const [value, count] of Object.entries(normalDist)) {
       const val = parseFloat(value);
-      combined[val] = (combined[val] || 0) + count * normalProbability;
+      const relativeProbability = count / normalTotal;
+      const weightedCount = relativeProbability * normalProbability;
+      combinedDistribution[val] = (combinedDistribution[val] || 0) + weightedCount;
     }
     
-    for (const [value, count] of Object.entries(criticalDistribution)) {
+    // 添加暴击情况的权重
+    for (const [value, count] of Object.entries(criticalDist)) {
       const val = parseFloat(value);
-      combined[val] = (combined[val] || 0) + count * criticalProbability;
+      const relativeProbability = count / criticalTotal;
+      const weightedCount = relativeProbability * criticalProbability;
+      combinedDistribution[val] = (combinedDistribution[val] || 0) + weightedCount;
     }
     
-    const average = this.calculateAverage(combined);
-    const totalOutcomes = Object.values(combined).reduce((sum, count) => sum + count, 0);
+    // 标准化结果
+    const totalWeight = Object.values(combinedDistribution).reduce((sum, weight) => sum + weight, 0);
+    const normalizedResult = {};
+    // 使用原始总数作为缩放因子，保持总体可能性数量不变
+    const originalTotalCount = normalTotal; // 普通和暴击情况应该有相同的总数
+    const scaleFactor = originalTotalCount;
+    
+    for (const [value, weight] of Object.entries(combinedDistribution)) {
+      const normalizedCount = Math.round(weight * scaleFactor / totalWeight);
+      if (normalizedCount > 0) {
+        normalizedResult[value] = normalizedCount;
+      }
+    }
+    
+    const average = this.calculateAverage({ distribution: normalizedResult });
+    const totalOutcomes = Object.values(normalizedResult).reduce((sum, count) => sum + count, 0);
     
     return {
-      distribution: combined,
+      distribution: normalizedResult,
       average,
       totalOutcomes,
       success: true,
       isCritical: true,
-      normalValues: normalDistribution,
-      criticalValues: criticalDistribution,
+      originalCriticalRate,
+      actualCriticalProbability: criticalProbability * 100,
       diceSides: actualDiceSides,
       criticalSides: actualCriticalSides,
-      originalCriticalRate: originalCriticalRate,
-      criticalProbability: criticalProbability * 100
-    };
-  }
-
-  // 处理多个独立暴击检定骰的情况
-  calculateWithMultipleCriticalDice(ast, criticalDiceIds, originalCriticalRate, diceSides, criticalSides) {
-    // 对于多个独立的暴击检定骰，我们需要计算所有可能的暴击状态组合
-    const numCriticalDice = criticalDiceIds.length;
-    const totalCombinations = Math.pow(2, numCriticalDice);
-    
-    // 计算每个暴击检定骰的暴击概率
-    const { criticalProbability } = this.calculateActualCriticalProbability(ast, originalCriticalRate);
-    const normalProbability = 1 - criticalProbability;
-    
-    const combinedDistribution = {};
-    
-    // 遍历所有可能的暴击状态组合
-    for (let combination = 0; combination < totalCombinations; combination++) {
-      // 清除之前的暴击状态
-      this.clearCriticalStates();
-      
-      // 计算这个组合的概率
-      let combinationProbability = 1;
-      
-      // 设置每个暴击检定骰的状态
-      for (let i = 0; i < numCriticalDice; i++) {
-        const diceId = criticalDiceIds[i];
-        const isCritical = (combination & (1 << i)) !== 0;
-        this.setCriticalState(diceId, isCritical);
-        
-        // 计算这个状态的概率
-        combinationProbability *= isCritical ? criticalProbability : normalProbability;
-      }
-      
-      // 计算这个组合下的结果
-      const combinationResult = this.evaluate(ast);
-      const distribution = this.extractDistribution(combinationResult);
-      
-      // 将结果加权加入总分布
-      for (const [value, count] of Object.entries(distribution)) {
-        const val = parseFloat(value);
-        combinedDistribution[val] = (combinedDistribution[val] || 0) + count * combinationProbability;
-      }
-    }
-    
-    const average = this.calculateAverage(combinedDistribution);
-    const totalOutcomes = Object.values(combinedDistribution).reduce((sum, count) => sum + count, 0);
-    
-    return {
-      distribution: combinedDistribution,
-      average,
-      totalOutcomes,
-      success: true,
-      isMultipleCritical: true,
-      criticalDiceCount: numCriticalDice,
-      criticalDiceIds: criticalDiceIds.filter(id => id !== this.globalCriticalId),
-      diceSides: diceSides,
-      criticalSides: criticalSides,
-      originalCriticalRate: originalCriticalRate,
-      criticalProbability: criticalProbability * 100
+      normalDistribution: normalDist,
+      criticalDistribution: criticalDist,
+      normalProbability,
+      criticalProbability
     };
   }
 
@@ -3544,7 +3414,8 @@ class DiceCalculator {
       criticalSides: Math.max(1, Math.round(actualDiceSides * criticalRate / 100)),
       originalCriticalRate,
       actualCriticalProbability: finalActualCriticalProbability * 100,
-      criticalProbability: finalActualCriticalProbability * 100
+      criticalProbability: finalActualCriticalProbability * 100,
+      nestedConditions: []  // 这个方法目前不处理嵌套条件，留空数组
     };
   }
 
@@ -3747,7 +3618,8 @@ class DiceCalculator {
       normalDistribution: normalDist,
       criticalDistribution: criticalDist,
       normalProbability,
-      criticalProbability
+      criticalProbability,
+      nestedConditions: []  // 这个方法也不处理嵌套条件，留空数组
     };
   }
 
@@ -3981,47 +3853,21 @@ class DiceCalculator {
     // 保存骰子注册表以供后续使用
     this.currentDiceRegistry = diceRegistry;
     
-    // 获取所有暴击检定骰的ID
-    const criticalDiceIds = [];
-    for (const [diceId, diceDef] of diceRegistry.entries()) {
-      if (diceDef.isCriticalDice) {
-        criticalDiceIds.push(diceId);
-      }
-    }
-    
-    if (criticalDiceIds.length === 0) {
-      // 没有暴击检定骰，使用普通计算
-      const result = this.calculateWithDiceReuse(ast, diceRegistry, criticalOptions);
-      delete this.currentDiceRegistry;
-      return result;
-    }
-
-    // 如果只有一个暴击检定骰，使用简化的处理
-    if (criticalDiceIds.length === 1) {
-      return this.calculateWithDiceReuseAndSingleCritical(ast, diceRegistry, criticalOptions, criticalDiceIds[0]);
-    }
-
-    // 多个独立暴击检定骰的情况
-    return this.calculateWithDiceReuseAndMultipleCritical(ast, diceRegistry, criticalOptions, criticalDiceIds);
-  }
-
-  // 处理单个暴击检定骰的骰子复用情况
-  calculateWithDiceReuseAndSingleCritical(ast, diceRegistry, criticalOptions, criticalDiceId) {
     // 对于骰子引用系统，需要重新计算实际的暴击概率
+    // 因为keep、reroll等操作会改变暴击概率
     const actualCriticalInfo = this.calculateActualCriticalProbabilityWithDiceReuse(ast, diceRegistry, criticalOptions.criticalRate);
     
-    const criticalProbability = actualCriticalInfo.criticalProbability;
+    const criticalProbability = actualCriticalInfo.criticalProbability; // 保持原始值
+    
+    // 检查criticalProbability的值，如果它看起来像百分比形式（>1），则转换为小数
     const normalizedCriticalProbability = criticalProbability > 1 ? criticalProbability / 100 : criticalProbability;
     const normalProbability = 1 - normalizedCriticalProbability;
     
     // 分别计算普通情况和暴击情况
     this.isCalculatingCritical = false;
-    this.clearCriticalStates();
     const normalResult = this.calculateWithDiceReuse(ast, diceRegistry, criticalOptions);
     
     this.isCalculatingCritical = true;
-    this.clearCriticalStates();
-    this.setCriticalState(criticalDiceId, true);
     const criticalResult = this.calculateWithDiceReuse(ast, diceRegistry, criticalOptions);
     
     // 清理临时变量
@@ -4032,12 +3878,18 @@ class DiceCalculator {
     
     // 处理条件表达式的特殊情况
     if (ast.type === 'conditional' || containsConditional) {
+      // 对于引用骰子的条件表达式，我们需要使用与非引用骰子相同的处理方式
+      // 来确保返回正确的条件暴击结果格式
+      
       if (ast.type === 'conditional') {
+        // 根节点是条件表达式，使用专门的暴击重叠计算
+        // 但需要适应引用骰子的情况
         return this.handleConditionalCriticalWithDiceReuseForConditional(
           ast, normalResult, criticalResult, normalProbability, normalizedCriticalProbability, 
           actualCriticalInfo.diceSides, actualCriticalInfo.criticalSides, criticalOptions.criticalRate
         );
       } else {
+        // 包含条件表达式的复合表达式
         return this.handleConditionalCriticalWithDiceReuse(
           normalResult, criticalResult, normalProbability, normalizedCriticalProbability, 
           actualCriticalInfo.diceSides, actualCriticalInfo.criticalSides, criticalOptions.criticalRate
@@ -4066,7 +3918,7 @@ class DiceCalculator {
     for (const [value, count] of Object.entries(criticalDist)) {
       const val = parseFloat(value);
       const relativeProbability = count / criticalTotal;
-      const weightedCount = relativeProbability * normalizedCriticalProbability;
+      const weightedCount = relativeProbability * criticalProbability;
       combinedDistribution[val] = (combinedDistribution[val] || 0) + weightedCount;
     }
     
@@ -4091,79 +3943,17 @@ class DiceCalculator {
       average,
       totalOutcomes,
       success: true,
+      hasDiceReuse: true,
       isCritical: true,
-      originalCriticalRate: criticalOptions.criticalRate,
-      actualCriticalProbability: criticalProbability * 100,
       diceSides: actualCriticalInfo.diceSides,
       criticalSides: actualCriticalInfo.criticalSides,
+      originalCriticalRate: criticalOptions.criticalRate,
+      actualCriticalProbability: criticalProbability * 100,
+      criticalProbability: criticalProbability * 100,
       normalDistribution: normalDist,
       criticalDistribution: criticalDist,
       normalProbability,
-      criticalProbability: normalizedCriticalProbability
-    };
-  }
-
-  // 处理多个独立暴击检定骰的骰子复用情况
-  calculateWithDiceReuseAndMultipleCritical(ast, diceRegistry, criticalOptions, criticalDiceIds) {
-    // 对于多个独立的暴击检定骰，我们需要计算所有可能的暴击状态组合
-    const numCriticalDice = criticalDiceIds.length;
-    const totalCombinations = Math.pow(2, numCriticalDice);
-    
-    // 计算每个暴击检定骰的暴击概率
-    const actualCriticalInfo = this.calculateActualCriticalProbabilityWithDiceReuse(ast, diceRegistry, criticalOptions.criticalRate);
-    const criticalProbability = actualCriticalInfo.criticalProbability;
-    const normalizedCriticalProbability = criticalProbability > 1 ? criticalProbability / 100 : criticalProbability;
-    const normalProbability = 1 - normalizedCriticalProbability;
-    
-    const combinedDistribution = {};
-    
-    // 遍历所有可能的暴击状态组合
-    for (let combination = 0; combination < totalCombinations; combination++) {
-      // 清除之前的暴击状态
-      this.clearCriticalStates();
-      
-      // 计算这个组合的概率
-      let combinationProbability = 1;
-      
-      // 设置每个暴击检定骰的状态
-      for (let i = 0; i < numCriticalDice; i++) {
-        const diceId = criticalDiceIds[i];
-        const isCritical = (combination & (1 << i)) !== 0;
-        this.setCriticalState(diceId, isCritical);
-        
-        // 计算这个状态的概率
-        combinationProbability *= isCritical ? normalizedCriticalProbability : normalProbability;
-      }
-      
-      // 计算这个组合下的结果
-      const combinationResult = this.calculateWithDiceReuse(ast, diceRegistry, criticalOptions);
-      const distribution = this.extractDistribution(combinationResult);
-      
-      // 将结果加权加入总分布
-      for (const [value, count] of Object.entries(distribution)) {
-        const val = parseFloat(value);
-        combinedDistribution[val] = (combinedDistribution[val] || 0) + count * combinationProbability;
-      }
-    }
-    
-    // 清理临时变量
-    delete this.currentDiceRegistry;
-    
-    const average = this.calculateAverage(combinedDistribution);
-    const totalOutcomes = Object.values(combinedDistribution).reduce((sum, count) => sum + count, 0);
-    
-    return {
-      distribution: combinedDistribution,
-      average,
-      totalOutcomes,
-      success: true,
-      isMultipleCriticalWithReuse: true,
-      criticalDiceCount: numCriticalDice,
-      criticalDiceIds: criticalDiceIds,
-      diceSides: actualCriticalInfo.diceSides,
-      criticalSides: actualCriticalInfo.criticalSides,
-      originalCriticalRate: criticalOptions.criticalRate,
-      criticalProbability: criticalProbability * 100
+      criticalProbability
     };
   }
 
@@ -4507,7 +4297,8 @@ class DiceCalculator {
       criticalSides,
       originalCriticalRate: originalCriticalRate,
       actualCriticalProbability: actualCriticalProbability * 100,
-      criticalProbability: actualCriticalProbability * 100
+      criticalProbability: actualCriticalProbability * 100,
+      nestedConditions: []  // 骰子引用暂不支持嵌套条件
     };
   }
 
@@ -5038,4 +4829,3 @@ class DiceCalculator {
 }
 
 export default DiceCalculator;
-
