@@ -1901,6 +1901,60 @@ class DiceCalculator {
       }
     }
     
+    // 收集嵌套条件信息 - 添加这部分逻辑
+    const nestedConditions = [];
+    
+    // 收集当前条件信息（暴击条件特殊处理）
+    const currentCondition = {
+      condition: this.nodeToString(conditionNode),
+      successProbability: conditionResult.normalSuccessProbability + conditionResult.criticalSuccessProbability,
+      failureProbability: conditionResult.failureProbability,
+      normalHitProbability: conditionResult.normalSuccessProbability,
+      criticalHitProbability: conditionResult.criticalSuccessProbability,
+      isCriticalCondition: true,
+      level: 0
+    };
+    nestedConditions.push(currentCondition);
+    
+    // 递归收集普通命中分支中的条件
+    if (normalSuccessResult.nestedConditions) {
+      normalSuccessResult.nestedConditions.forEach(cond => {
+        nestedConditions.push({
+          ...cond,
+          level: cond.level + 1,
+          parentProbability: conditionResult.normalSuccessProbability,
+          conditionalProbability: cond.successProbability * conditionResult.normalSuccessProbability,
+          path: 'normal_hit'
+        });
+      });
+    }
+    
+    // 递归收集暴击命中分支中的条件
+    if (criticalSuccessResult.nestedConditions) {
+      criticalSuccessResult.nestedConditions.forEach(cond => {
+        nestedConditions.push({
+          ...cond,
+          level: cond.level + 1,
+          parentProbability: conditionResult.criticalSuccessProbability,
+          conditionalProbability: cond.successProbability * conditionResult.criticalSuccessProbability,
+          path: 'critical_hit'
+        });
+      });
+    }
+    
+    // 递归收集失败分支中的条件
+    if (failureResult.nestedConditions) {
+      failureResult.nestedConditions.forEach(cond => {
+        nestedConditions.push({
+          ...cond,
+          level: cond.level + 1,
+          parentProbability: conditionResult.failureProbability,
+          conditionalProbability: cond.successProbability * conditionResult.failureProbability,
+          path: 'miss'
+        });
+      });
+    }
+    
     // 计算实际暴击率
     const finalActualCriticalProbability = (conditionResult.normalSuccessProbability + conditionResult.criticalSuccessProbability) > 0 
       ? conditionResult.criticalSuccessProbability / (conditionResult.normalSuccessProbability + conditionResult.criticalSuccessProbability) 
@@ -1919,7 +1973,7 @@ class DiceCalculator {
       },
       actualCriticalProbability: isNaN(finalActualCriticalProbability) ? 0 : finalActualCriticalProbability,
       criticalProbability: criticalRate,
-      nestedConditions: []
+      nestedConditions: nestedConditions
     };
   }
 
@@ -3040,7 +3094,8 @@ class DiceCalculator {
           criticalSides: actualCriticalSides,
           originalCriticalRate: originalCriticalRate,
           actualCriticalProbability: conditionalCriticalResult.actualCriticalProbability * 100,
-          criticalProbability: conditionalCriticalResult.actualCriticalProbability * 100
+          criticalProbability: conditionalCriticalResult.actualCriticalProbability * 100,
+          nestedConditions: conditionalCriticalResult.nestedConditions
         };
       } else if (ast.type === 'comparison') {
         // 处理比较表达式（如d20>10）
@@ -3069,7 +3124,8 @@ class DiceCalculator {
           criticalSides: actualCriticalSides,
           originalCriticalRate: originalCriticalRate,
           actualCriticalProbability: conditionalCriticalResult.actualCriticalProbability * 100,
-          criticalProbability: conditionalCriticalResult.actualCriticalProbability * 100
+          criticalProbability: conditionalCriticalResult.actualCriticalProbability * 100,
+          nestedConditions: conditionalCriticalResult.nestedConditions
         };
       }
     }
@@ -3358,7 +3414,8 @@ class DiceCalculator {
       criticalSides: Math.max(1, Math.round(actualDiceSides * criticalRate / 100)),
       originalCriticalRate,
       actualCriticalProbability: finalActualCriticalProbability * 100,
-      criticalProbability: finalActualCriticalProbability * 100
+      criticalProbability: finalActualCriticalProbability * 100,
+      nestedConditions: []  // 这个方法目前不处理嵌套条件，留空数组
     };
   }
 
@@ -3561,7 +3618,8 @@ class DiceCalculator {
       normalDistribution: normalDist,
       criticalDistribution: criticalDist,
       normalProbability,
-      criticalProbability
+      criticalProbability,
+      nestedConditions: []  // 这个方法也不处理嵌套条件，留空数组
     };
   }
 
@@ -4239,7 +4297,8 @@ class DiceCalculator {
       criticalSides,
       originalCriticalRate: originalCriticalRate,
       actualCriticalProbability: actualCriticalProbability * 100,
-      criticalProbability: actualCriticalProbability * 100
+      criticalProbability: actualCriticalProbability * 100,
+      nestedConditions: []  // 骰子引用暂不支持嵌套条件
     };
   }
 
