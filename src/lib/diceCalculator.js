@@ -120,6 +120,9 @@ class Lexer {
       } else if (char === '_') {
         this.tokens.push({ type: 'UNDERSCORE', value: '_' });
         this.position++;
+      } else if (char === ',') {
+        this.tokens.push({ type: 'COMMA', value: ',' });
+        this.position++;
       } else {
         throw new Error(`未知字符: ${char}`);
       }
@@ -414,6 +417,12 @@ class Lexer {
         return;
       }
     }
+
+    // 检查是否是函数名
+    if (identifier === 'min' || identifier === 'max' || identifier === 'min_each' || identifier === 'max_each') {
+      this.tokens.push({ type: 'FUNCTION', value: identifier });
+      return;
+    }
     
     throw new Error(`未知标识符: ${identifier}`);
   }
@@ -702,6 +711,11 @@ class Parser {
   
   parseDice() {
     const token = this.currentToken();
+    
+    // 解析函数调用
+    if (token.type === 'FUNCTION') {
+      return this.parseFunction();
+    }
     
     if (token.type === 'NUMBER') {
       // 检查下一个token是否是'd'或'D'，如果是则解析为掷骰
@@ -1073,6 +1087,39 @@ class Parser {
 
   advance() {
     this.position++;
+  }
+
+  parseFunction() {
+    const functionName = this.currentToken().value;
+    this.advance(); // 跳过函数名
+    
+    if (this.currentToken().type !== 'LPAREN') {
+      throw new Error(`函数 ${functionName} 后必须跟 (`);
+    }
+    this.advance(); // 跳过 (
+    
+    const args = [];
+    
+    // 解析参数列表
+    if (this.currentToken().type !== 'RPAREN') {
+      args.push(this.parseExpression());
+      
+      while (this.currentToken().type === 'COMMA') {
+        this.advance(); // 跳过逗号
+        args.push(this.parseExpression());
+      }
+    }
+    
+    if (this.currentToken().type !== 'RPAREN') {
+      throw new Error(`函数 ${functionName} 缺少结束的 )`);
+    }
+    this.advance(); // 跳过 )
+    
+    return {
+      type: 'function_call',
+      name: functionName,
+      arguments: args
+    };
   }
 }
 
@@ -2942,6 +2989,9 @@ class DiceCalculator {
       case 'critical_only':
         return this.calculateCriticalOnly(node.expression);
         
+      case 'function_call':
+        return this.evaluateFunction(node.name, node.arguments);
+        
       default:
         throw new Error(`未知节点类型: ${node.type}`);
     }
@@ -2992,6 +3042,198 @@ class DiceCalculator {
       // 非暴击时：返回0
       return { 0: 1 };
     }
+  }
+
+  // 评估函数调用
+  evaluateFunction(functionName, args) {
+    switch (functionName) {
+      case 'min':
+        if (args.length !== 2) {
+          throw new Error('min函数需要2个参数：min(dice_expression, threshold)');
+        }
+        return this.calculateMinFunction(args[0], args[1]);
+        
+      case 'max':
+        if (args.length !== 2) {
+          throw new Error('max函数需要2个参数：max(dice_expression, threshold)');
+        }
+        return this.calculateMaxFunction(args[0], args[1]);
+        
+      case 'min_each':
+        if (args.length !== 2) {
+          throw new Error('min_each函数需要2个参数：min_each(dice_expression, threshold)');
+        }
+        return this.calculateMinEachFunction(args[0], args[1]);
+        
+      case 'max_each':
+        if (args.length !== 2) {
+          throw new Error('max_each函数需要2个参数：max_each(dice_expression, threshold)');
+        }
+        return this.calculateMaxEachFunction(args[0], args[1]);
+        
+      default:
+        throw new Error(`未知函数: ${functionName}`);
+    }
+  }
+
+  // 计算min函数：将骰子结果的最小值设置为阈值
+  calculateMinFunction(diceExpression, thresholdExpression) {
+    const diceResult = this.evaluate(diceExpression);
+    const thresholdResult = this.evaluate(thresholdExpression);
+    
+    // 获取阈值（应该是一个固定值）
+    const thresholdDist = this.extractDistribution(thresholdResult);
+    const thresholdValues = Object.keys(thresholdDist).map(Number);
+    if (thresholdValues.length !== 1) {
+      throw new Error('min函数的阈值必须是一个固定值');
+    }
+    const threshold = thresholdValues[0];
+    
+    // 处理骰子结果分布
+    const diceDist = this.extractDistribution(diceResult);
+    const result = {};
+    
+    for (const [value, count] of Object.entries(diceDist)) {
+      const diceValue = parseFloat(value);
+      const adjustedValue = Math.max(diceValue, threshold);
+      result[adjustedValue] = (result[adjustedValue] || 0) + count;
+    }
+    
+    return result;
+  }
+
+  // 计算max函数：将骰子结果的最大值设置为阈值
+  calculateMaxFunction(diceExpression, thresholdExpression) {
+    const diceResult = this.evaluate(diceExpression);
+    const thresholdResult = this.evaluate(thresholdExpression);
+    
+    // 获取阈值（应该是一个固定值）
+    const thresholdDist = this.extractDistribution(thresholdResult);
+    const thresholdValues = Object.keys(thresholdDist).map(Number);
+    if (thresholdValues.length !== 1) {
+      throw new Error('max函数的阈值必须是一个固定值');
+    }
+    const threshold = thresholdValues[0];
+    
+    // 处理骰子结果分布
+    const diceDist = this.extractDistribution(diceResult);
+    const result = {};
+    
+    for (const [value, count] of Object.entries(diceDist)) {
+      const diceValue = parseFloat(value);
+      const adjustedValue = Math.min(diceValue, threshold);
+      result[adjustedValue] = (result[adjustedValue] || 0) + count;
+    }
+    
+    return result;
+  }
+
+  // 计算min_each函数：对每个骰子单独应用最小值限制
+  calculateMinEachFunction(diceExpression, thresholdExpression) {
+    // 获取阈值
+    const thresholdResult = this.evaluate(thresholdExpression);
+    const thresholdDist = this.extractDistribution(thresholdResult);
+    const thresholdValues = Object.keys(thresholdDist).map(Number);
+    if (thresholdValues.length !== 1) {
+      throw new Error('min_each函数的阈值必须是一个固定值');
+    }
+    const threshold = thresholdValues[0];
+    
+    // 检查骰子表达式是否是基础骰子
+    if (diceExpression.type === 'dice') {
+      return this.calculateMinEachForBasicDice(diceExpression, threshold);
+    } else {
+      // 对于复杂表达式，退回到普通的min函数
+      console.warn('min_each函数对复杂表达式退回到min函数行为');
+      return this.calculateMinFunction(diceExpression, thresholdExpression);
+    }
+  }
+
+  // 计算max_each函数：对每个骰子单独应用最大值限制
+  calculateMaxEachFunction(diceExpression, thresholdExpression) {
+    // 获取阈值
+    const thresholdResult = this.evaluate(thresholdExpression);
+    const thresholdDist = this.extractDistribution(thresholdResult);
+    const thresholdValues = Object.keys(thresholdDist).map(Number);
+    if (thresholdValues.length !== 1) {
+      throw new Error('max_each函数的阈值必须是一个固定值');
+    }
+    const threshold = thresholdValues[0];
+    
+    // 检查骰子表达式是否是基础骰子
+    if (diceExpression.type === 'dice') {
+      return this.calculateMaxEachForBasicDice(diceExpression, threshold);
+    } else {
+      // 对于复杂表达式，退回到普通的max函数
+      console.warn('max_each函数对复杂表达式退回到max函数行为');
+      return this.calculateMaxFunction(diceExpression, thresholdExpression);
+    }
+  }
+
+  // 为基础骰子计算min_each
+  calculateMinEachForBasicDice(diceNode, threshold) {
+    const count = diceNode.count;
+    const sides = diceNode.sides;
+    
+    // 创建单个骰子的调整分布
+    const singleDiceResult = {};
+    for (let i = 1; i <= sides; i++) {
+      const adjustedValue = Math.max(i, threshold);
+      singleDiceResult[adjustedValue] = (singleDiceResult[adjustedValue] || 0) + 1;
+    }
+    
+    // 如果只有一个骰子，直接返回
+    if (count === 1) {
+      return singleDiceResult;
+    }
+    
+    // 多个骰子时，需要计算所有骰子的卷积
+    let result = singleDiceResult;
+    for (let i = 1; i < count; i++) {
+      result = this.convolveDistributions(result, singleDiceResult);
+    }
+    
+    return result;
+  }
+
+  // 为基础骰子计算max_each
+  calculateMaxEachForBasicDice(diceNode, threshold) {
+    const count = diceNode.count;
+    const sides = diceNode.sides;
+    
+    // 创建单个骰子的调整分布
+    const singleDiceResult = {};
+    for (let i = 1; i <= sides; i++) {
+      const adjustedValue = Math.min(i, threshold);
+      singleDiceResult[adjustedValue] = (singleDiceResult[adjustedValue] || 0) + 1;
+    }
+    
+    // 如果只有一个骰子，直接返回
+    if (count === 1) {
+      return singleDiceResult;
+    }
+    
+    // 多个骰子时，需要计算所有骰子的卷积
+    let result = singleDiceResult;
+    for (let i = 1; i < count; i++) {
+      result = this.convolveDistributions(result, singleDiceResult);
+    }
+    
+    return result;
+  }
+
+  // 辅助函数：计算两个分布的卷积（用于多个骰子相加）
+  convolveDistributions(dist1, dist2) {
+    const result = {};
+    
+    for (const [value1, count1] of Object.entries(dist1)) {
+      for (const [value2, count2] of Object.entries(dist2)) {
+        const sum = parseFloat(value1) + parseFloat(value2);
+        result[sum] = (result[sum] || 0) + (count1 * count2);
+      }
+    }
+    
+    return result;
   }
 
   // 计算实际暴击概率（基于实际分布）
