@@ -1267,17 +1267,24 @@ class DiceCalculator {
     function generateMultipleExpressionCombinations(distributions) {
       if (distributions.length === 1) {
         const dist = distributions[0];
-        return Object.entries(dist).map(([value, count]) => ({
-          values: [parseInt(value)],
-          count
-        }));
+        // 过滤掉非数字键，避免NaN
+        return Object.entries(dist)
+          .filter(([value, count]) => !isNaN(parseInt(value)))
+          .map(([value, count]) => ({
+            values: [parseInt(value)],
+            count
+          }));
       }
       
       const firstDist = distributions[0];
       const restCombinations = generateMultipleExpressionCombinations(distributions.slice(1));
       const combinations = [];
       
-      for (const [value, count] of Object.entries(firstDist)) {
+      // 过滤掉非数字键，避免NaN
+      const filteredEntries = Object.entries(firstDist)
+        .filter(([value, count]) => !isNaN(parseInt(value)));
+      
+      for (const [value, count] of filteredEntries) {
         for (const combo of restCombinations) {
           combinations.push({
             values: [parseInt(value), ...combo.values],
@@ -4757,17 +4764,24 @@ class DiceCalculator {
     function generateMultipleExpressionCombinations(distributions) {
       if (distributions.length === 1) {
         const dist = distributions[0];
-        return Object.entries(dist).map(([value, count]) => ({
-          values: [parseInt(value)],
-          count
-        }));
+        // 过滤掉非数字键，避免NaN
+        return Object.entries(dist)
+          .filter(([value, count]) => !isNaN(parseInt(value)))
+          .map(([value, count]) => ({
+            values: [parseInt(value)],
+            count
+          }));
       }
       
       const firstDist = distributions[0];
       const restCombinations = generateMultipleExpressionCombinations(distributions.slice(1));
       const combinations = [];
       
-      for (const [value, count] of Object.entries(firstDist)) {
+      // 过滤掉非数字键，避免NaN
+      const filteredEntries = Object.entries(firstDist)
+        .filter(([value, count]) => !isNaN(parseInt(value)));
+      
+      for (const [value, count] of filteredEntries) {
         for (const combo of restCombinations) {
           combinations.push({
             values: [parseInt(value), ...combo.values],
