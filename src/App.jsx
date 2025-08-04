@@ -113,6 +113,10 @@ function App() {
                   <code className="text-blue-600 font-mono">(d20+8&gt;=15) ? 2d6+3 : 0</code>
                 </div>
                 <div className="flex justify-between items-center p-2 bg-gray-50 rounded text-sm">
+                  <span className="font-medium text-gray-700">5r巨武战斗</span>
+                  <code className="text-blue-600 font-mono">D20&gt;0?|min_each(2d6, 3)+4|min_each(4d6, 3)+4|:0</code>
+                </div>
+                <div className="flex justify-between items-center p-2 bg-gray-50 rounded text-sm">
                   <span className="font-medium text-gray-700">分段豁免</span>
                   <code className="text-blue-600 font-mono">kh(d20;d20)=20?0:kh(d_1;d_2)&gt;16?6d6/2:6d6</code>
                 </div>
