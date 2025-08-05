@@ -410,7 +410,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
         
         return {
           value: value,
-          count: Math.max(totalProbabilityPercent, 0.01), // 确保有显示值，使用百分比
+          count: totalProbabilityPercent, // 使用实际概率值，不设置最小值
           trueCount: trueProbabilityPercent,
           falseCount: falseProbabilityPercent,
           trueProbability: trueProbabilityPercent.toFixed(2),
@@ -418,7 +418,7 @@ const DiceChart = ({ distribution, totalOutcomes, isConditional, trueValues, fal
           totalProbability: totalProbabilityPercent.toFixed(2)
         };
       })
-      .filter(item => item.count > 0.01); // 确保显示有意义的数据
+      .filter(item => item.count > 0); // 只过滤掉真正为0的数据
 
     // 条件表达式的自定义Tooltip
     const ConditionalTooltip = ({ active, payload, label }) => {

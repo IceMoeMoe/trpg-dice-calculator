@@ -519,7 +519,7 @@ const ResultDisplay = ({ result, formula }) => {
                     <tr key={value} className="border-b hover:bg-gray-50">
                       <td className="p-2 font-mono">{displayValue}</td>
                       <td className="p-2 text-right">{count.toLocaleString()}</td>
-                      <td className="p-2 text-right">{probability.toFixed(2)}%</td>
+                      <td className="p-2 text-right">{probability.toFixed(10)}%</td>
                       <td className="p-2">
                         <div className="w-full bg-gray-200 rounded-full h-2">
                           <div 
