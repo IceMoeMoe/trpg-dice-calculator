@@ -1,5 +1,6 @@
 // 暴击评估：封装普通/条件/标准合并等逻辑，复用 calc 的方法和其它模块
-import { getCriticalDiceSidesFromAST, convertCriticalRateToSides, getDiceInfoFromCondition, getRawDiceDistribution, canProduceResult, findCriticalDiceInNode } from '../operators/logic/critical_utils.js';
+import { getCriticalDiceSidesFromAST, convertCriticalRateToSides, getDiceInfoFromCondition, getRawDiceDistribution, canProduceResult, findCriticalDiceInNode, evaluateConditionWithCritical as utilEvaluateConditionWithCritical } from '../operators/logic/critical_utils.js';
+import { calculateStandardCritical as flowStandardCritical, handleConditionalCritical as flowHandleConditional, calculateComplexConditionalCritical as flowCalcComplex } from '../operators/logic/critical_flow.js';
 
 export function calculateActualCriticalProbability(calc, ast, originalCriticalRate) {
   let targetAst = ast;
@@ -86,10 +87,10 @@ export function calculateWithCritical(calc, ast, originalCriticalRate, diceSides
     }
   }
   if (containsConditional) {
-    return calculateComplexConditionalCritical(calc, ast, normalProbability, criticalProbability, actualDiceSides, actualCriticalSides, originalCriticalRate);
+  return flowCalcComplex(calc, ast, normalProbability, criticalProbability, originalCriticalRate);
   }
   if (normalResult.type === 'conditional' || criticalResult.type === 'conditional') {
-    return handleConditionalCritical(calc, normalResult, criticalResult, normalProbability, criticalProbability, actualDiceSides, actualCriticalSides, originalCriticalRate);
+  return flowHandleConditional(calc, normalResult, criticalResult, normalProbability, criticalProbability, actualDiceSides, actualCriticalSides, originalCriticalRate);
   }
   const combinedDistribution = {};
   const normalDist = calc.extractDistribution(normalResult);
@@ -132,7 +133,7 @@ export function calculateWithCritical(calc, ast, originalCriticalRate, diceSides
 export function calculateComplexConditionalCritical(calc, ast, normalProbability, criticalProbability, diceSides, criticalSides, originalCriticalRate) {
   const conditionInfo = calc.findCriticalConditionInAST(ast);
   if (!conditionInfo) {
-    return calculateStandardCritical(calc, ast, normalProbability, criticalProbability, diceSides, criticalSides, originalCriticalRate);
+  return flowStandardCritical(calc, ast, normalProbability, criticalProbability, diceSides, criticalSides, originalCriticalRate);
   }
   const { conditionNode, trueValueNode, falseValueNode } = conditionInfo;
   const criticalRate = originalCriticalRate; const diceInfo = getDiceInfoFromCondition(calc, conditionNode);
@@ -186,7 +187,7 @@ export function calculateComplexConditionalCritical(calc, ast, normalProbability
       actualCriticalProbability = criticalSidesCount / actualDiceSides;
     }
   }
-  const baseConditionResult = evaluateConditionWithCritical(calc, conditionNode, actualCriticalProbability);
+  const baseConditionResult = utilEvaluateConditionWithCritical(calc, conditionNode, actualCriticalProbability);
   calc.isCalculatingCritical = false; const normalSuccessResult = calc.evaluate(trueValueNode); const failureResult = calc.evaluate(falseValueNode);
   calc.isCalculatingCritical = true; const criticalSuccessResult = calc.evaluate(trueValueNode);
   const normalSuccessFullDist = calc.evaluateExpressionWithSubstitution(ast, conditionInfo, normalSuccessResult);
@@ -254,178 +255,7 @@ export function calculateComplexConditionalCritical(calc, ast, normalProbability
 }
 
 export function calculateStandardCritical(calc, ast, normalProbability, criticalProbability, diceSides, criticalSides, originalCriticalRate) {
-  calc.isCalculatingCritical = false; const normalResult = calc.evaluate(ast);
-  calc.isCalculatingCritical = true; const criticalResult = calc.evaluate(ast);
-  const combinedDistribution = {}; const normalDist = calc.extractDistribution(normalResult); const criticalDist = calc.extractDistribution(criticalResult);
-  const normalTotal = Object.values(normalDist).reduce((s, c) => s + c, 0); const criticalTotal = Object.values(criticalDist).reduce((s, c) => s + c, 0);
-  for (const [value, count] of Object.entries(normalDist)) {
-    const val = parseFloat(value); const relativeProbability = count / normalTotal; const weightedCount = relativeProbability * normalProbability;
-    combinedDistribution[val] = (combinedDistribution[val] || 0) + weightedCount;
-  }
-  for (const [value, count] of Object.entries(criticalDist)) {
-    const val = parseFloat(value); const relativeProbability = count / criticalTotal; const weightedCount = relativeProbability * criticalProbability;
-    combinedDistribution[val] = (combinedDistribution[val] || 0) + weightedCount;
-  }
-  const totalWeight = Object.values(combinedDistribution).reduce((s, w) => s + w, 0); const normalizedResult = {}; const scaleFactor = normalTotal;
-  for (const [value, weight] of Object.entries(combinedDistribution)) {
-    const normalizedCount = Math.round(weight * scaleFactor / totalWeight); if (normalizedCount > 0) normalizedResult[value] = normalizedCount;
-  }
-  const average = calc.calculateAverage({ distribution: normalizedResult }); const totalOutcomes = Object.values(normalizedResult).reduce((s, c) => s + c, 0);
-  return {
-    distribution: normalizedResult,
-    average,
-    totalOutcomes,
-    success: true,
-    isCritical: true,
-    originalCriticalRate,
-    actualCriticalProbability: criticalProbability * 100,
-    diceSides,
-    criticalSides,
-    normalDistribution: normalDist,
-    criticalDistribution: criticalDist,
-    normalProbability,
-    criticalProbability
-  };
+  // 委托到 flow 的标准暴击实现，去重
+  return flowStandardCritical(calc, ast, normalProbability, criticalProbability, diceSides, criticalSides, originalCriticalRate);
 }
-
-export function evaluateConditionWithCritical(calc, conditionNode, actualCriticalProbability) {
-  if (conditionNode.type === 'comparison') {
-    const leftResult = calc.evaluate(conditionNode.left);
-    const rightResult = calc.evaluate(conditionNode.right);
-    const leftDistribution = calc.extractDistribution(leftResult);
-    const rightDistribution = calc.extractDistribution(rightResult);
-    const diceInfo = getDiceInfoFromCondition(calc, conditionNode); const diceSides = diceInfo.sides;
-    const leftHasCriticalDice = calc.containsCriticalDice(conditionNode.left);
-    const rightHasCriticalDice = calc.containsCriticalDice(conditionNode.right);
-    let rawDiceDistribution = {};
-    if (leftHasCriticalDice) { rawDiceDistribution = getRawDiceDistribution(calc, conditionNode.left); }
-    else if (rightHasCriticalDice) { rawDiceDistribution = getRawDiceDistribution(calc, conditionNode.right); }
-    let totalSuccessCount = 0; let totalCriticalSuccessCount = 0; let totalFailureCount = 0;
-    const criticalSides = Math.max(1, Math.round(diceSides * actualCriticalProbability));
-    const criticalThreshold = diceSides - criticalSides + 1;
-    if (Object.keys(rightDistribution).length === 1 && Object.keys(rightDistribution)[0] !== undefined) {
-      const rightValue = parseInt(Object.keys(rightDistribution)[0]);
-      for (const [leftValue, leftCount] of Object.entries(leftDistribution)) {
-        const leftVal = parseInt(leftValue);
-        let success = false;
-        switch (conditionNode.operator) {
-          case '>': success = leftVal > rightValue; break;
-          case '<': success = leftVal < rightValue; break;
-          case '=':
-          case '==': success = leftVal === rightValue; break;
-          case '>=': success = leftVal >= rightValue; break;
-          case '<=': success = leftVal <= rightValue; break;
-        }
-        if (success) {
-          let isCritical = false;
-          if (leftHasCriticalDice && Object.keys(rawDiceDistribution).length > 0) {
-            for (const [rawDiceValue] of Object.entries(rawDiceDistribution)) {
-              const rawVal = parseInt(rawDiceValue);
-              if (rawVal >= criticalThreshold) {
-                if (canProduceResult(calc, conditionNode.left, rawVal, leftVal)) { isCritical = true; break; }
-              }
-            }
-          } else if (rightHasCriticalDice && Object.keys(rawDiceDistribution).length > 0) {
-            for (const [rawDiceValue] of Object.entries(rawDiceDistribution)) {
-              const rawVal = parseInt(rawDiceValue);
-              if (rawVal >= criticalThreshold) {
-                if (canProduceResult(calc, conditionNode.right, rawVal, rightValue)) { isCritical = true; break; }
-              }
-            }
-          }
-          if (isCritical) totalCriticalSuccessCount += leftCount; else totalSuccessCount += leftCount;
-        } else {
-          totalFailureCount += leftCount;
-        }
-      }
-    } else if (Object.keys(leftDistribution).length === 1 && Object.keys(leftDistribution)[0] !== undefined) {
-      const leftValue = parseInt(Object.keys(leftDistribution)[0]);
-      for (const [rightValue, rightCount] of Object.entries(rightDistribution)) {
-        const rightVal = parseInt(rightValue);
-        let success = false;
-        switch (conditionNode.operator) {
-          case '>': success = leftValue > rightVal; break;
-          case '<': success = leftValue < rightVal; break;
-          case '=':
-          case '==': success = leftValue === rightVal; break;
-          case '>=': success = leftValue >= rightVal; break;
-          case '<=': success = leftValue <= rightVal; break;
-        }
-        if (success) {
-          let isCritical = false;
-          if (leftHasCriticalDice && Object.keys(rawDiceDistribution).length > 0) {
-            for (const [rawDiceValue] of Object.entries(rawDiceDistribution)) {
-              const rawVal = parseInt(rawDiceValue);
-              if (rawVal >= criticalThreshold) {
-                if (canProduceResult(calc, conditionNode.left, rawVal, leftValue)) { isCritical = true; break; }
-              }
-            }
-          } else if (rightHasCriticalDice && Object.keys(rawDiceDistribution).length > 0) {
-            for (const [rawDiceValue] of Object.entries(rawDiceDistribution)) {
-              const rawVal = parseInt(rawDiceValue);
-              if (rawVal >= criticalThreshold) {
-                if (canProduceResult(calc, conditionNode.right, rawVal, rightVal)) { isCritical = true; break; }
-              }
-            }
-          }
-          if (isCritical) totalCriticalSuccessCount += rightCount; else totalSuccessCount += rightCount;
-        } else {
-          totalFailureCount += rightCount;
-        }
-      }
-    } else {
-      for (const [leftValue, leftCount] of Object.entries(leftDistribution)) {
-        for (const [rightValue, rightCount] of Object.entries(rightDistribution)) {
-          const leftVal = parseInt(leftValue); const rightVal = parseInt(rightValue); const combinationCount = leftCount * rightCount;
-          let success = false;
-          switch (conditionNode.operator) {
-            case '>': success = leftVal > rightVal; break;
-            case '<': success = leftVal < rightVal; break;
-            case '=':
-            case '==': success = leftVal === rightVal; break;
-            case '>=': success = leftVal >= rightVal; break;
-            case '<=': success = leftVal <= rightVal; break;
-          }
-          if (success) {
-            let isCritical = false;
-            if (leftHasCriticalDice && Object.keys(rawDiceDistribution).length > 0) {
-              for (const [rawDiceValue] of Object.entries(rawDiceDistribution)) {
-                const rawVal = parseInt(rawDiceValue);
-                if (rawVal >= criticalThreshold) {
-                  if (canProduceResult(calc, conditionNode.left, rawVal, leftVal)) { isCritical = true; break; }
-                }
-              }
-            } else if (rightHasCriticalDice && Object.keys(rawDiceDistribution).length > 0) {
-              for (const [rawDiceValue] of Object.entries(rawDiceDistribution)) {
-                const rawVal = parseInt(rawDiceValue);
-                if (rawVal >= criticalThreshold) {
-                  if (canProduceResult(calc, conditionNode.right, rawVal, rightVal)) { isCritical = true; break; }
-                }
-              }
-            }
-            if (isCritical) totalCriticalSuccessCount += combinationCount; else totalSuccessCount += combinationCount;
-          } else {
-            totalFailureCount += combinationCount;
-          }
-        }
-      }
-    }
-    const total = totalSuccessCount + totalCriticalSuccessCount + totalFailureCount;
-    const normalSuccessProbability = total > 0 ? totalSuccessCount / total : 0;
-    const criticalSuccessProbability = total > 0 ? totalCriticalSuccessCount / total : 0;
-    const failureProbability = total > 0 ? totalFailureCount / total : 1;
-    const combined = { 1: Math.round(total * (normalSuccessProbability + criticalSuccessProbability)), 0: Math.round(total * failureProbability) };
-    return {
-      type: 'conditional_critical',
-      combined,
-      normalSuccessProbability,
-      criticalSuccessProbability,
-      failureProbability,
-      normalHitValues: { 1: Math.round(total * normalSuccessProbability) },
-      criticalHitValues: { 1: Math.round(total * criticalSuccessProbability) },
-      missValues: { 0: Math.round(total * failureProbability) },
-      nestedConditions: []
-    };
-  }
-  return { type: 'probability', successProbability: 0, failureProbability: 1, successCount: 0, totalCount: 0, distribution: { 0: 1 } };
-}
+// Removed duplicate evaluateConditionWithCritical; use the one from critical_utils instead.

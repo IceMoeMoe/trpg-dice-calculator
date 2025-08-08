@@ -1,4 +1,5 @@
 // 固定骰值评估相关的辅助函数（从 DiceCalculator 中抽离）
+import { calculateKeepSingleDice as keepSingle, combineDistributionsKeep as keepCombine } from '../operators/keep.js';
 
 // 在固定骰子值的情况下评估表达式
 export function evaluateWithFixedDice(calc, node) {
@@ -126,7 +127,8 @@ export function calculateKeepWithFixedDice(calc, expressions, keepCount, keepTyp
   if (expressions.length === 1) {
     const expr = expressions[0];
     if (expr.type === 'dice') {
-      return calc.calculateKeepSingleDice(expr, keepCount, keepType);
+  // 直接使用 keep 算子的单骰实现，避免依赖 calc 上不存在的方法
+  return keepSingle(expr, keepCount, keepType);
     }
     return calculateKeepComplexWithFixedDice(calc, expr, keepCount, keepType);
   }
@@ -149,36 +151,7 @@ export function calculateKeepComplexWithFixedDice(calc, expression, keepCount, k
 // 计算多个不同表达式的Keep操作 - 固定骰子值版本
 export function calculateKeepMultipleWithFixedDice(calc, expressions, keepCount, keepType) {
   const distributions = expressions.map(expr => evaluateWithFixedDice(calc, expr));
-  const result = {};
-
-  function generateMultipleExpressionCombinations(dists) {
-    if (dists.length === 1) {
-      const dist = dists[0];
-      return Object.entries(dist)
-        .filter(([value]) => !isNaN(parseInt(value)))
-        .map(([value, count]) => ({ values: [parseInt(value)], count }));
-    }
-    const firstDist = dists[0];
-    const restCombinations = generateMultipleExpressionCombinations(dists.slice(1));
-    const combinations = [];
-    const filteredEntries = Object.entries(firstDist)
-      .filter(([value]) => !isNaN(parseInt(value)));
-    for (const [value, count] of filteredEntries) {
-      for (const combo of restCombinations) {
-        combinations.push({ values: [parseInt(value), ...combo.values], count: count * combo.count });
-      }
-    }
-    return combinations;
-  }
-
-  const allCombinations = generateMultipleExpressionCombinations(distributions);
-  for (const combination of allCombinations) {
-    const sorted = [...combination.values].sort((a, b) => keepType === 'highest' ? b - a : a - b);
-    const kept = sorted.slice(0, keepCount);
-    const sum = kept.reduce((acc, val) => acc + val, 0);
-    result[sum] = (result[sum] || 0) + combination.count;
-  }
-  return result;
+  return keepCombine(distributions, keepCount, keepType);
 }
 
 // 在固定骰子值下计算暴击翻倍
