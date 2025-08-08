@@ -108,12 +108,13 @@ export function getEffectiveCriticalDiceValues(calc, currentValues, ast) {
           }
           return [{ diceId: node.id, effectiveValue: values.get(node.id) }];
         }
-        break;
+    // 非暴击骰或当前组合中没有该骰子的固定值，视为无效贡献
+    return [];
       case 'dice_ref':
         if (node.isCriticalDice && values.has(node.id)) {
           return [{ diceId: node.id, effectiveValue: values.get(node.id) }];
         }
-        break;
+    return [];
       case 'keep': {
         const expressions = node.expressions || [node.expression];
         let allVals = [];
@@ -124,7 +125,7 @@ export function getEffectiveCriticalDiceValues(calc, currentValues, ast) {
         if (node.dice && node.dice.isCriticalDice && node.dice.id !== undefined && values.has(node.dice.id)) {
           return [{ diceId: node.dice.id, effectiveValue: values.get(node.dice.id) }];
         }
-        break;
+    return [];
       case 'binary_op':
       case 'comparison': {
         const l = analyze(node.left, values);
@@ -151,6 +152,8 @@ export function getEffectiveCriticalDiceValues(calc, currentValues, ast) {
       default:
         return [];
     }
+  // 兜底：任何未显式返回的路径都不应贡献有效的暴击骰
+  return [];
   };
 
   if (ast) return analyze(ast, currentValues);
