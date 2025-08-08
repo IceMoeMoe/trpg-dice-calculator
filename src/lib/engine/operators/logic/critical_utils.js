@@ -72,8 +72,10 @@ export function calculateConstantContribution(calc, node) {
     const average = ((node.sides || 20) + 1) / 2;
     return (node.count || 1) * average;
   }
-  if ((node.type === 'dice' || node.type === 'dice_ref') && node.isCriticalDice) return 0;
-  if (node.type === 'dice_ref' && !node.isCriticalDice) {
+  if (node.type === 'dice' && node.isCriticalDice) return 0;
+  if (node.type === 'dice_ref') {
+    // dice_ref 总是返回正常的平均值，即使引用的是暴击骰子
+    // 因为在条件失败分支中，它应该有确定的值
     const average = ((node.sides || 20) + 1) / 2;
     return (node.count || 1) * average;
   }

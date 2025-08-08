@@ -12,16 +12,49 @@ export function calculateWithDiceReuseAndCriticalOperator(calc, ast, diceRegistr
 
   calc.isCalculatingCritical = false;
   const normalResult = calculateWithDiceReuseOperator(calc, ast, diceRegistry, criticalOptions);
+  // 失败分支（条件为假）使用真实的假值表达式进行计算，用于 missValues 展示
+  let failureResultForDisplay = null;
+  if (ast.type === 'conditional' && ast.falseValue) {
+    try {
+      failureResultForDisplay = calculateWithDiceReuseOperator(calc, ast.falseValue, diceRegistry, criticalOptions);
+    } catch (_) {
+      // 忽略失败分支展示的异常，按旧逻辑回退
+      failureResultForDisplay = null;
+    }
+  }
   calc.isCalculatingCritical = true;
   const criticalResult = calculateWithDiceReuseOperator(calc, ast, diceRegistry, criticalOptions);
-  delete calc.currentDiceRegistry;
 
   const containsConditional = calc.containsConditionalExpression(ast);
   if (ast.type === 'conditional' || containsConditional) {
+    let ret;
     if (ast.type === 'conditional') {
-      return handleConditionalCriticalWithDiceReuseForConditional(calc, ast, normalResult, criticalResult, normalProbability, normalizedCriticalProbability, actualCriticalInfo.diceSides, actualCriticalInfo.criticalSides, criticalOptions.criticalRate);
+      ret = handleConditionalCriticalWithDiceReuseForConditional(
+        calc,
+        ast,
+        normalResult,
+        criticalResult,
+        normalProbability,
+        normalizedCriticalProbability,
+        actualCriticalInfo.diceSides,
+        actualCriticalInfo.criticalSides,
+        criticalOptions.criticalRate,
+        failureResultForDisplay
+      );
+    } else {
+      ret = handleConditionalCriticalWithDiceReuse(
+        calc,
+        normalResult,
+        criticalResult,
+        normalProbability,
+        normalizedCriticalProbability,
+        actualCriticalInfo.diceSides,
+        actualCriticalInfo.criticalSides,
+        criticalOptions.criticalRate
+      );
     }
-    return handleConditionalCriticalWithDiceReuse(calc, normalResult, criticalResult, normalProbability, normalizedCriticalProbability, actualCriticalInfo.diceSides, actualCriticalInfo.criticalSides, criticalOptions.criticalRate);
+    delete calc.currentDiceRegistry;
+    return ret;
   }
 
   const combinedDistribution = {};
@@ -68,7 +101,7 @@ export function calculateWithDiceReuseAndCriticalOperator(calc, ast, diceRegistr
     normalDistribution: normalDist,
     criticalDistribution: criticalDist,
     normalProbability,
-    criticalProbability: normalizedCriticalProbability,
+  criticalProbability: normalizedCriticalProbability,
   };
 }
 
@@ -163,7 +196,7 @@ export function findKeepNodeInAST(node) {
   return null;
 }
 
-export function handleConditionalCriticalWithDiceReuseForConditional(calc, ast, normalResult, criticalResult, normalProbability, criticalProbability, diceSides, criticalSides, originalCriticalRate) {
+export function handleConditionalCriticalWithDiceReuseForConditional(calc, ast, normalResult, criticalResult, normalProbability, criticalProbability, diceSides, criticalSides, originalCriticalRate, failureResultForDisplay = null) {
   const normalDist = calc.extractDistribution(normalResult);
   const criticalDist = calc.extractDistribution(criticalResult);
   const normalHitValues = {};
@@ -218,11 +251,23 @@ export function handleConditionalCriticalWithDiceReuseForConditional(calc, ast, 
   const criticalSuccessProbability = totalSuccessProbability * actualCriticalProbability;
   const failureProbability = actualFailureProbability;
 
+  // 失败分支展示：优先使用真实的失败分支分布（例如 : d_1），避免错误地显示为0
   if (actualFailureProbability > 0) {
-    const zeroInNormal = normalDist['0'] || 0;
-    const zeroInCritical = criticalDist['0'] || 0;
-    if (zeroInNormal > 0 || zeroInCritical > 0) { missValues[0] = Math.max(zeroInNormal, zeroInCritical); }
-    else if (actualFailureProbability >= 0.01) { missValues[0] = 1; }
+    if (failureResultForDisplay) {
+      const failureDist = calc.extractDistribution(failureResultForDisplay);
+      for (const [value, count] of Object.entries(failureDist)) {
+        const v = parseFloat(value);
+        // 只记录出现过的失败取值形状，不做概率缩放（缩放在图表按概率完成）
+        if (count > 0) missValues[v] = (missValues[v] || 0) + count;
+      }
+    }
+    // 回退：若失败分支无法评估，则沿用旧的“0占位”逻辑
+    if (Object.keys(missValues).length === 0) {
+      const zeroInNormal = normalDist['0'] || 0;
+      const zeroInCritical = criticalDist['0'] || 0;
+      if (zeroInNormal > 0 || zeroInCritical > 0) { missValues[0] = Math.max(zeroInNormal, zeroInCritical); }
+      else if (actualFailureProbability >= 0.01) { missValues[0] = 1; }
+    }
   }
 
   const combinedDistribution = {};
