@@ -1189,8 +1189,6 @@ class DiceCalculator {
     // 检查是否包含条件表达式（递归检查）
     const containsConditional = this.containsConditionalExpression(ast);
     
-  import { calculateActualCriticalProbability, calculateWithCritical, calculateComplexConditionalCritical, calculateStandardCritical, evaluateConditionWithCritical } from './engine/evaluator/critical.js';
-  import { getCriticalDiceSidesFromAST, convertCriticalRateToSides, getDiceInfoFromCondition, getRawDiceDistribution, canProduceResult } from './engine/operators/logic/critical_utils.js';
     // 处理不同类型的结果
     if (ast.type === 'conditional' || ast.type === 'comparison') {
       // 如果根节点就是条件表达式，使用专门的暴击重叠计算
