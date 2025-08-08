@@ -59,6 +59,9 @@ export function evaluateWithFixedDice(calc, node) {
     case 'critical_only':
       return calculateCriticalOnlyWithFixedDice(calc, node.expression);
 
+    case 'function_call':
+      return calc.evaluateFunction(node.name, node.arguments);
+
     default:
       throw new Error(`未知节点类型: ${node.type}`);
   }
