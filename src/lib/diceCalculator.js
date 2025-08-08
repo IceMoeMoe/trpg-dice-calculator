@@ -1,15 +1,15 @@
 // 掷骰计算器核心逻辑
 import Lexer from './engine/lexer.js';
 import Parser from './engine/parser.js';
-import { convolveDistributions as convDist, calculateAverage as calcAvg, normalizeToScale } from './engine/math/distribution.js';
-import { generateSingleDiceRerollOutcomes as genRerollOne, generateSingleDiceExplodingOutcomes as genExplodeOne, generateSingleDiceExplodingSumOutcomes as genExplodeSumOne } from './engine/math/generators.js';
+import { convolveDistributions as convDist, calculateAverage as calcAvg } from './engine/math/distribution.js';
+import { generateSingleDiceRerollOutcomes as genRerollOne } from './engine/math/generators.js';
 import { calculateRerollOperator } from './engine/operators/reroll.js';
 import { calculateExplodingOperator, calculateExplodingSumOperator } from './engine/operators/exploding.js';
 import { calculateConditionalOperator } from './engine/operators/conditional.js';
 import { calculateCriticalDoubleOperator, calculateCriticalSwitchOperator, calculateCriticalOnlyOperator } from './engine/operators/critical.js';
 import { calculateMinFunctionOperator, calculateMaxFunctionOperator, calculateMinEachFunctionOperator, calculateMaxEachFunctionOperator, calculateMinEachForBasicDiceOperator, calculateMaxEachForBasicDiceOperator } from './engine/operators/minmax_each.js';
 import { calculateKeepWithRerollOperator } from './engine/operators/keep_with_reroll.js';
-import { calculateWithDiceReuseOperator } from './engine/operators/logic/dice_reuse.js';
+import { calculateWithDiceReuseOperator, diceReuseInternals, calculateDiceReuseFast as reuseCalcFast, shouldIncludeCombinationForCritical as reuseShouldInclude, getEffectiveCriticalDiceValues as reuseGetEff } from './engine/operators/logic/dice_reuse.js';
 import { calculateWithDiceReuseAndCriticalOperator, calculateActualCriticalProbabilityWithDiceReuse as calcActualCritWithReuse, correctKeepCriticalProbability as correctKeepCritProb, findKeepNodeInAST as findKeepNode, handleConditionalCriticalWithDiceReuseForConditional as handleCondCritForConditional, handleConditionalCriticalWithDiceReuse as handleCondCritWithReuse } from './engine/operators/logic/critical_with_reuse.js';
 import { evaluateWithFixedDice as evalFixed, calculateBinaryOpWithFixedDice as binOpFixed, calculateComparisonWithFixedDice as cmpFixed, calculateConditionalWithFixedDice as condFixed, calculateKeepWithFixedDice as keepFixed, calculateKeepComplexWithFixedDice as keepComplexFixed, calculateKeepMultipleWithFixedDice as keepMultipleFixed, calculateCriticalDoubleWithFixedDice as critDoubleFixed, calculateCriticalSwitchWithFixedDice as critSwitchFixed, calculateCriticalOnlyWithFixedDice as critOnlyFixed } from './engine/evaluator/fixed.js';
 import { nodeToString as astNodeToString, containsCriticalDice as astContainsCriticalDice, containsConditionalExpression as astContainsConditional } from './engine/ast/utils.js';
@@ -18,7 +18,7 @@ import { extractDistribution as extractDistNormal, calculateComparison as cmpNor
 import { calculateConditionalWithCriticalOverlap as calcCondCritOverlap } from './engine/operators/logic/critical_overlap.js';
 import { findCriticalConditionInAST as flowFindCriticalCond, substituteNodeInAST as flowSubstituteNode, createDistributionNode as flowCreateDistNode, evaluateExpressionWithSubstitution as flowEvalWithSub, calculateStandardCritical as flowStandardCritical, handleConditionalCritical as flowHandleConditional, calculateComplexConditionalCritical as flowCalcComplex } from './engine/operators/logic/critical_flow.js';
 import { getRawDiceDistribution as critGetRawDist, getDiceInfoFromCondition as critGetDiceInfo, calculateConstantContribution as critConstContrib, canProduceResult as critCanProduce, evaluateConditionWithCritical as critEvalCondition, findCriticalDiceInNode as critFindDiceInNode, getCriticalDiceSidesFromAST as critGetSidesFromAST, convertCriticalRateToSides as critConvertRateToSides, isSimpleD20Condition as critIsSimpleCond, extractThresholdFromCondition as critExtractThreshold } from './engine/operators/logic/critical_utils.js';
-import { calculateKeepSingleDice as keepSingle, combineDistributionsKeep as keepCombine } from './engine/operators/keep.js';
+import { calculateKeepOperator as keepEntry, calculateKeepComplexOperator as keepComplexEntry, calculateKeepMultipleOperator as keepMultipleEntry } from './engine/operators/keep_entry.js';
 import { calculateActualCriticalProbability as evalCritActual, calculateWithCritical as evalCritWith } from './engine/evaluator/critical.js';
 
 // 掷骰结果计算器
@@ -47,52 +47,18 @@ class DiceCalculator {
   containsCriticalDice(node) { return astContainsCriticalDice(node); }
   containsConditionalExpression(node) { return astContainsConditional(node); }
 
-  // 计算Keep操作 (取最高/最低) - 支持多种表达式和复合掷骰
-  calculateKeep(expressions, keepCount, keepType) {
-    // 如果只有一个表达式，检查是否为传统格式
-    if (expressions.length === 1) {
-      const expr = expressions[0];
-      if (expr.type === 'dice') {
-        return this.calculateKeepSingleDice(expr, keepCount, keepType);
-      }
-      return this.calculateKeepComplex(expr, keepCount, keepType);
-    }
-    // 多个表达式（如 kl(1d8;1d10) ）
-    return this.calculateKeepMultiple(expressions, keepCount, keepType);
-  }
-
-  // 计算单一骰子的Keep操作（原逻辑委托）
-  calculateKeepSingleDice(expression, keepCount, keepType) {
-    return keepSingle(expression, keepCount, keepType);
-  }
-
-  // 计算复合表达式的Keep操作（支持重掷等）
-  calculateKeepComplex(expression, keepCount, keepType) {
-    const baseResult = this.evaluate(expression);
-    if (typeof baseResult !== 'object' || baseResult.distribution) {
-      return baseResult;
-    }
-    if (expression.type === 'reroll') {
-      return this.calculateKeepWithReroll(expression, keepCount, keepType);
-    }
-    return baseResult;
-  }
-
-  // 计算多个不同表达式的Keep操作
-  calculateKeepMultiple(expressions, keepCount, keepType) {
-  const distributions = expressions.map(expr => this.evaluate(expr));
-  return keepCombine(distributions, keepCount, keepType);
-  }
+  // 计算Keep操作 (取最高/最低) - 委托到 keep_entry 模块
+  calculateKeep(expressions, keepCount, keepType) { return keepEntry(this, expressions, keepCount, keepType); }
+  calculateKeepComplex(expression, keepCount, keepType) { return keepComplexEntry(this, expression, keepCount, keepType); }
+  calculateKeepMultiple(expressions, keepCount, keepType) { return keepMultipleEntry(this, expressions, keepCount, keepType); }
 
   // 计算带重掷的 Keep 操作（委托到算子模块）
   calculateKeepWithReroll(rerollExpr, keepCount, keepType) {
     return calculateKeepWithRerollOperator(rerollExpr, keepCount, keepType);
   }
 
-  // 生成单个骰子的重骰结果分布
-  generateSingleDiceRerollOutcomes(sides, minReroll, maxReroll, maxRerollCount) {
-    return genRerollOne(sides, minReroll, maxReroll, maxRerollCount);
-  }
+  // 保留对外兼容：提供生成单骰重掷分布的访问（内部直接使用生成器模块）
+  generateSingleDiceRerollOutcomes(sides, minReroll, maxReroll, maxRerollCount) { return genRerollOne(sides, minReroll, maxReroll, maxRerollCount); }
 
   // 计算重骰操作
   calculateReroll(diceNode, minValue, maxValue, maxRerolls) {
@@ -101,20 +67,14 @@ class DiceCalculator {
 
   // 计算爆炸骰操作 (成功计数型)
   calculateExploding(node) {
-    const { baseExpression, diceNode, minSuccess, maxSuccess, minExplode, maxExplode, maxExplosions } = node;
-    
-    // 获取基础表达式的结果分布（可能包含重骰等操作）
-    const baseResult = this.evaluate(baseExpression);
-    const baseDist = this.extractDistribution(baseResult);
+  const { diceNode, minSuccess, maxSuccess, minExplode, maxExplode, maxExplosions } = node;
   return calculateExplodingOperator(diceNode, minSuccess, maxSuccess, minExplode, maxExplode, maxExplosions);
   }
 
   // 计算总和型爆炸骰操作
   calculateExplodingSum(node) {
-    const { baseExpression, diceNode, minExplode, maxExplode, maxExplosions } = node;
-    const baseResult = this.evaluate(baseExpression);
-    const baseDist = this.extractDistribution(baseResult);
-    return calculateExplodingSumOperator(diceNode, minExplode, maxExplode, maxExplosions);
+  const { diceNode, minExplode, maxExplode, maxExplosions } = node;
+  return calculateExplodingSumOperator(diceNode, minExplode, maxExplode, maxExplosions);
   }
 
   // （已移除 extractRawDiceValues/isValidRemainingValue）
@@ -554,20 +514,11 @@ class DiceCalculator {
   }
   
   // 快速/组合过滤等内部方法改为委托到逻辑模块导出的内部工具
-  calculateDiceReuseFast(diceDistributions, ast, result) { return (void 0), this; }
-  enumerateCombinationsFast() { return (void 0), this; }
-  shouldIncludeCombinationForCritical() { return (void 0), true; }
-  getEffectiveCriticalDiceValues(currentValues, ast) {
-    // 保持向后兼容：从新模块导出的实现挂载到实例上时，这里会被覆盖；
-    // 若未覆盖，则回退为原先逻辑的简化实现（直接按注册表中的暴击骰取值）。
-    const vals = [];
-    if (!this.currentDiceRegistry) return vals;
-    for (const [diceId, diceValue] of currentValues.entries()) {
-      const diceDef = this.currentDiceRegistry.get(diceId);
-      if (diceDef && diceDef.isCriticalDice) vals.push({ diceId, effectiveValue: diceValue });
-    }
-    return vals;
-  }
+  // 将骰子复用内部方法委托给逻辑模块的实现
+  calculateDiceReuseFast(diceDistributions, ast, result) { return reuseCalcFast(this, diceDistributions, ast, result); }
+  enumerateCombinationsFast() { return diceReuseInternals.enumerateCombinationsFast; }
+  shouldIncludeCombinationForCritical(currentValues, ast) { return reuseShouldInclude(this, currentValues, ast); }
+  getEffectiveCriticalDiceValues(currentValues, ast) { return reuseGetEff(this, currentValues, ast); }
   
   // 在固定骰子值的情况下评估表达式（委托 evaluator 模块）
   evaluateWithFixedDice(node) { return evalFixed(this, node); }
