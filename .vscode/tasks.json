@@ -1,0 +1,30 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run smoke tests",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"-e",
+				"\"const { execSync } = require('node:child_process'); const fs=require('fs'); const path='test'; const files=fs.readdirSync(path).filter(f=>f.endsWith('.js')); for (const f of files){ console.log('>>>', f); try{ execSync(`node ${path}/${f}`, { stdio: 'inherit' }); } catch(e){ process.exit(1);} }\""
+			]
+		},
+		{
+			"label": "Run smoke.js",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"scripts/smoke.js"
+			]
+		},
+		{
+			"label": "Run smoke.cjs",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"scripts/smoke.cjs"
+			]
+		}
+	]
+}

@@ -12,15 +12,260 @@ import { calculateWithDiceReuseOperator } from './engine/operators/logic/dice_re
 import { calculateWithDiceReuseAndCriticalOperator, calculateActualCriticalProbabilityWithDiceReuse as calcActualCritWithReuse, correctKeepCriticalProbability as correctKeepCritProb, findKeepNodeInAST as findKeepNode, handleConditionalCriticalWithDiceReuseForConditional as handleCondCritForConditional, handleConditionalCriticalWithDiceReuse as handleCondCritWithReuse } from './engine/operators/logic/critical_with_reuse.js';
 import { evaluateWithFixedDice as evalFixed, calculateBinaryOpWithFixedDice as binOpFixed, calculateComparisonWithFixedDice as cmpFixed, calculateConditionalWithFixedDice as condFixed, calculateKeepWithFixedDice as keepFixed, calculateKeepComplexWithFixedDice as keepComplexFixed, calculateKeepMultipleWithFixedDice as keepMultipleFixed, calculateCriticalDoubleWithFixedDice as critDoubleFixed, calculateCriticalSwitchWithFixedDice as critSwitchFixed, calculateCriticalOnlyWithFixedDice as critOnlyFixed } from './engine/evaluator/fixed.js';
 import { nodeToString as astNodeToString, containsCriticalDice as astContainsCriticalDice } from './engine/ast/utils.js';
+import { extractDistribution as extractDistNormal, calculateComparison as cmpNormal, calculateBinaryOp as binOpNormal, calculateProbabilityOperation as probOpNormal, calculateNormalBinaryOp as normBinOp } from './engine/evaluator/normal.js';
 import { calculateConditionalWithCriticalOverlap as calcCondCritOverlap } from './engine/operators/logic/critical_overlap.js';
-import { getRawDiceDistribution as utilGetRawDiceDist, evaluateConditionWithCritical as utilEvalCondCrit, findCriticalDiceInNode as utilFindCritDice, getDiceInfoFromCondition as utilGetDiceInfo, canProduceResult as utilCanProduce, calculateConstantContribution as utilConstContrib } from './engine/operators/logic/critical_utils.js';
 import { calculateKeepSingleDice as keepSingle, combineDistributionsKeep as keepCombine } from './engine/operators/keep.js';
 
 // 掷骰结果计算器
-  // 评估条件表达式，区分暴击和非暴击情况（委托逻辑模块）
-  evaluateConditionWithCritical(conditionNode, actualCriticalProbability) {
-    return utilEvalCondCrit(this, conditionNode, actualCriticalProbability);
+class DiceCalculator {
+  constructor() {
+    this.diceResults = new Map(); // 存储骰子ID到结果的映射
+    this.criticalOptions = null; // 暴击选项
+    this.isCalculatingCritical = false; // 是否正在计算暴击情况
   }
+  
+  // 设置骰子结果映射
+  setDiceResults(diceResults) {
+    this.diceResults = diceResults;
+  }
+  
+  // 获取骰子结果映射
+  getDiceResults() {
+    return this.diceResults;
+  }
+  
+  // 计算基本掷骰 (NdM)
+  calculateBasicDice(count, sides) {
+    const result = {};
+    
+    // 递归计算多个骰子的结果分布
+    function calculateMultipleDice(diceCount, diceSides, currentResult = { 0: 1 }) {
+      if (diceCount === 0) return currentResult;
+      
+      const newResult = {};
+      
+      // 对于当前结果的每个值
+      for (const [currentSum, currentCount] of Object.entries(currentResult)) {
+        const sum = parseInt(currentSum);
+        
+        // 对于新骰子的每个可能值
+        for (let diceValue = 1; diceValue <= diceSides; diceValue++) {
+          const newSum = sum + diceValue;
+          newResult[newSum] = (newResult[newSum] || 0) + currentCount;
+        }
+      }
+      
+      return calculateMultipleDice(diceCount - 1, diceSides, newResult);
+    }
+    
+    return calculateMultipleDice(count, sides);
+  }
+
+  // 计算Keep操作 (取最高/最低) - 支持多种表达式和复合掷骰
+  calculateKeep(expressions, keepCount, keepType) {
+    // 如果只有一个表达式，检查是否为传统格式
+    if (expressions.length === 1) {
+      const expr = expressions[0];
+      // 对于传统的单一骰子表达式（如4d6），按原逻辑处理
+      if (expr.type === 'dice') {
+        return this.calculateKeepSingleDice(expr, keepCount, keepType);
+      }
+      // 对于复合表达式（如带重骰的），需要特殊处理
+      return this.calculateKeepComplex(expr, keepCount, keepType);
+    }
+    
+    // 多个表达式的情况（如kl(1d8;1d10)）
+    return this.calculateKeepMultiple(expressions, keepCount, keepType);
+  }
+
+  // 计算单一骰子的Keep操作（原逻辑）
+  calculateKeepSingleDice(expression, keepCount, keepType) {
+  return keepSingle(expression, keepCount, keepType);
+  }
+
+  // 计算复合表达式的Keep操作（支持重骰等）
+  calculateKeepComplex(expression, keepCount, keepType) {
+    // 首先计算复合表达式的所有可能结果
+    const baseResult = this.evaluate(expression);
+    
+    // 如果基础结果不是分布，无法应用keep
+    if (typeof baseResult !== 'object' || baseResult.distribution) {
+      return baseResult;
+    }
+    
+    // 将分布转换为值数组，然后应用keep逻辑
+    const result = {};
+    
+    // 对于复合表达式，我们需要模拟每个骰子的单独结果
+    // 这里需要更复杂的逻辑来处理重骰等情况
+    if (expression.type === 'reroll') {
+      return this.calculateKeepWithReroll(expression, keepCount, keepType);
+    }
+    
+    return baseResult;
+  }
+
+  // 计算带重骰的Keep操作
+  calculateKeepWithReroll(rerollExpr, keepCount, keepType) {
+    const { dice, minValue, maxValue, maxRerolls } = rerollExpr;
+    const { count, sides } = dice;
+    const result = {};
+    
+    // 生成单个骰子的重骰结果分布
+    const singleDiceOutcomes = this.generateSingleDiceRerollOutcomes(
+      sides, minValue, maxValue, maxRerolls
+    );
+    
+    // 生成所有可能的多骰子组合
+    function generateRerollCombinations(diceCount, singleOutcomes) {
+      if (diceCount === 1) {
+        return Object.entries(singleOutcomes).map(([value, count]) => ({
+          values: [parseInt(value)],
+          probability: count
+        }));
+      }
+      
+      const smallerCombinations = generateRerollCombinations(diceCount - 1, singleOutcomes);
+      const combinations = [];
+      
+      for (const [value, count] of Object.entries(singleOutcomes)) {
+        for (const combo of smallerCombinations) {
+          combinations.push({
+            values: [parseInt(value), ...combo.values],
+            probability: count * combo.probability
+          });
+        }
+      }
+      
+      return combinations;
+    }
+    
+    const allCombinations = generateRerollCombinations(count, singleDiceOutcomes);
+    
+    // 对每个组合应用keep规则
+    for (const combination of allCombinations) {
+      const sorted = [...combination.values].sort((a, b) => keepType === 'highest' ? b - a : a - b);
+      const kept = sorted.slice(0, keepCount);
+      const sum = kept.reduce((acc, val) => acc + val, 0);
+      
+      result[sum] = (result[sum] || 0) + combination.probability;
+    }
+    
+    // 将概率转换为整数计数
+    const scaleFactor = Object.values(singleDiceOutcomes).reduce((sum, count) => sum + count, 0) ** count;
+    const integerResult = {};
+    for (const [value, probability] of Object.entries(result)) {
+      const count = Math.round(probability);
+      if (count > 0) {
+        integerResult[value] = count;
+      }
+    }
+    
+    return integerResult;
+  }
+
+  // 计算多个不同表达式的Keep操作
+  calculateKeepMultiple(expressions, keepCount, keepType) {
+  const distributions = expressions.map(expr => this.evaluate(expr));
+  return keepCombine(distributions, keepCount, keepType);
+  }
+
+  // 生成单个骰子的重骰结果分布
+  generateSingleDiceRerollOutcomes(sides, minReroll, maxReroll, maxRerollCount) {
+    return genRerollOne(sides, minReroll, maxReroll, maxRerollCount);
+  }
+
+  // 计算重骰操作
+  calculateReroll(diceNode, minValue, maxValue, maxRerolls) {
+  return calculateRerollOperator(diceNode, minValue, maxValue, maxRerolls);
+  }
+
+  // 计算爆炸骰操作 (成功计数型)
+  calculateExploding(node) {
+    const { baseExpression, diceNode, minSuccess, maxSuccess, minExplode, maxExplode, maxExplosions } = node;
+    
+    // 获取基础表达式的结果分布（可能包含重骰等操作）
+    const baseResult = this.evaluate(baseExpression);
+    const baseDist = this.extractDistribution(baseResult);
+  return calculateExplodingOperator(diceNode, minSuccess, maxSuccess, minExplode, maxExplode, maxExplosions);
+  }
+
+  // 生成单个骰子的爆炸结果分布（成功计数）
+  generateSingleDiceExplodingOutcomes(sides, minSuccess, maxSuccess, minExplode, maxExplode, maxExplosions) {
+    return genExplodeOne(sides, minSuccess, maxSuccess, minExplode, maxExplode, maxExplosions);
+  }
+
+  // 计算总和型爆炸骰操作
+  calculateExplodingSum(node) {
+    const { baseExpression, diceNode, minExplode, maxExplode, maxExplosions } = node;
+    
+    // 获取基础表达式的结果分布（可能包含重骰等操作）
+    const baseResult = this.evaluate(baseExpression);
+    const baseDist = this.extractDistribution(baseResult);
+  return calculateExplodingSumOperator(diceNode, minExplode, maxExplode, maxExplosions);
+  }
+
+  // 生成单个骰子的总和型爆炸结果分布
+  generateSingleDiceExplodingSumOutcomes(sides, minExplode, maxExplode, maxExplosions) {
+    return genExplodeSumOne(sides, minExplode, maxExplode, maxExplosions);
+  }
+
+  // 计算条件表达式
+  calculateConditional(conditionNode, trueValueNode, falseValueNode) {
+  return calculateConditionalOperator(this, conditionNode, trueValueNode, falseValueNode);
+  }
+
+  // 检查条件中是否包含暴击检定骰
+  hasCriticalDiceInCondition(conditionNode) {
+  return this.containsCriticalDice(conditionNode);
+  }
+
+  // 将AST节点转换为字符串表示
+  nodeToString(node) {
+  return astNodeToString(node);
+  }
+
+  // 递归检查表达式中是否包含条件表达式
+  containsConditionalExpression(node) {
+    if (!node) return false;
+    if (node.type === 'conditional') return true;
+    if (node.type === 'binary_op' || node.type === 'comparison') {
+      return this.containsConditionalExpression(node.left) || this.containsConditionalExpression(node.right);
+    }
+    if (node.type === 'keep' && node.expressions) {
+      return node.expressions.some(expr => this.containsConditionalExpression(expr));
+    }
+    if (node.type === 'critical_switch') {
+      return this.containsConditionalExpression(node.normalExpression) || this.containsConditionalExpression(node.criticalExpression);
+    }
+    if (node.type === 'group') {
+      return this.containsConditionalExpression(node.expression);
+    }
+    if (node.type === 'reroll' && node.dice) {
+      return this.containsConditionalExpression(node.dice);
+    }
+    if ((node.type === 'exploding' || node.type === 'exploding_sum')) {
+      return this.containsConditionalExpression(node.baseExpression) || this.containsConditionalExpression(node.diceNode);
+    }
+    if (node.condition || node.trueValue || node.falseValue) {
+      return this.containsConditionalExpression(node.condition) || this.containsConditionalExpression(node.trueValue) || this.containsConditionalExpression(node.falseValue);
+    }
+    if (node.expression) return this.containsConditionalExpression(node.expression);
+    if (node.baseExpression) return this.containsConditionalExpression(node.baseExpression);
+    if (node.diceNode) return this.containsConditionalExpression(node.diceNode);
+    return false;
+  }
+
+  // 递归检查表达式中是否包含暴击检定骰（委托 AST 工具）
+  containsCriticalDice(node) { return astContainsCriticalDice(node); }
+
+  // 处理暴击与命中重合的条件表达式（委托逻辑模块）
+  calculateConditionalWithCriticalOverlap(conditionNode, trueValueNode, falseValueNode, baseConditionResult) {
+    return calcCondCritOverlap(this, conditionNode, trueValueNode, falseValueNode, baseConditionResult);
+  }
+
+  // 提取原始骰子值用于暴击判定
+  extractRawDiceValues(node, targetValue) {
     const rawValues = [];
     
     const extractFromNode = (node, currentSum) => {
@@ -685,231 +930,26 @@ import { calculateKeepSingleDice as keepSingle, combineDistributionsKeep as keep
   }
   // 提取分布数据的辅助函数
   extractDistribution(result) {
-    if (result.combined) {
-      return result.combined;
-    } else if (result.distribution) {
-      return result.distribution;
-    } else if (typeof result === 'object' && !Array.isArray(result)) {
-      // 检查是否已经是简单的分布对象
-      const keys = Object.keys(result);
-      if (keys.length > 0 && keys.every(key => !isNaN(parseFloat(key)) || key === 'isCriticalDice')) {
-        // 过滤掉非数字键（如isCriticalDice）
-        const filteredResult = {};
-        for (const [key, value] of Object.entries(result)) {
-          if (!isNaN(parseFloat(key))) {
-            filteredResult[key] = value;
-          }
-        }
-        return filteredResult;
-      }
-    }
-    return result;
+  return extractDistNormal(this, result);
   }
 
   calculateComparison(left, right, operator) {
-    const leftResult = this.evaluate(left);
-    const rightResult = this.evaluate(right);
-    
-    // 提取实际的分布数据
-    const leftDistribution = this.extractDistribution(leftResult);
-    const rightDistribution = this.extractDistribution(rightResult);
-    
-    let successCount = 0;
-    let totalCount = 0;
-    
-    // 如果右边是单个数值（不是分布），简化计算
-    if (Object.keys(rightDistribution).length === 1 && Object.keys(rightDistribution)[0] !== undefined) {
-      const rightValue = parseInt(Object.keys(rightDistribution)[0]);
-      
-      for (const [leftValue, leftCount] of Object.entries(leftDistribution)) {
-        const leftVal = parseInt(leftValue);
-        totalCount += leftCount;
-        
-        let success = false;
-        switch (operator) {
-          case '>':
-            success = leftVal > rightValue;
-            break;
-          case '<':
-            success = leftVal < rightValue;
-            break;
-          case '=':
-          case '==':
-            success = leftVal === rightValue;
-            break;
-          case '>=':
-            success = leftVal >= rightValue;
-            break;
-          case '<=':
-            success = leftVal <= rightValue;
-            break;
-        }
-        
-        if (success) {
-          successCount += leftCount;
-        }
-      }
-    } else {
-      // 完整的分布比较
-      for (const [leftValue, leftCount] of Object.entries(leftDistribution)) {
-        for (const [rightValue, rightCount] of Object.entries(rightDistribution)) {
-          const leftVal = parseInt(leftValue);
-          const rightVal = parseInt(rightValue);
-          const combinationCount = leftCount * rightCount;
-          
-          totalCount += combinationCount;
-          
-          let success = false;
-          switch (operator) {
-            case '>':
-              success = leftVal > rightVal;
-              break;
-            case '<':
-              success = leftVal < rightVal;
-              break;
-            case '=':
-            case '==':
-              success = leftVal === rightVal;
-              break;
-            case '>=':
-              success = leftVal >= rightVal;
-              break;
-            case '<=':
-              success = leftVal <= rightVal;
-              break;
-          }
-          
-          if (success) {
-            successCount += combinationCount;
-          }
-        }
-      }
-    }
-    
-    // 返回成功概率和失败概率的分布
-    const successProbability = totalCount > 0 ? successCount / totalCount : 0;
-    const failureProbability = totalCount > 0 ? (totalCount - successCount) / totalCount : 1;
-    
-    return {
-      type: 'probability',
-      successProbability,
-      failureProbability,
-      successCount,
-      totalCount,
-      // 也保留原有的1/0分布用于兼容性
-      distribution: {
-        1: successCount,
-        0: totalCount - successCount
-      }
-    };
+  return cmpNormal(this, left, right, operator);
   }
 
   // 计算二元运算
   calculateBinaryOp(left, right, operator) {
-    const leftResult = this.evaluate(left);
-    const rightResult = this.evaluate(right);
-    
-    // 检查是否有概率类型的结果
-    const leftIsProbability = leftResult.type === 'probability';
-    const rightIsProbability = rightResult.type === 'probability';
-    
-    if (leftIsProbability && !rightIsProbability) {
-      // 左边是概率，右边是数值分布
-      return this.calculateProbabilityOperation(leftResult, rightResult, operator, 'left');
-    } else if (!leftIsProbability && rightIsProbability) {
-      // 左边是数值分布，右边是概率
-      return this.calculateProbabilityOperation(rightResult, leftResult, operator, 'right');
-    } else if (leftIsProbability && rightIsProbability) {
-      // 两边都是概率 - 概率相乘
-      if (operator === '*') {
-        const newSuccessProbability = leftResult.successProbability * rightResult.successProbability;
-        const totalOutcomes = leftResult.totalCount * rightResult.totalCount;
-        const successOutcomes = Math.round(newSuccessProbability * totalOutcomes);
-        
-        return {
-          type: 'probability',
-          successProbability: newSuccessProbability,
-          failureProbability: 1 - newSuccessProbability,
-          successCount: successOutcomes,
-          totalCount: totalOutcomes,
-          distribution: {
-            1: successOutcomes,
-            0: totalOutcomes - successOutcomes
-          }
-        };
-      }
-      // 对于其他操作，转换为普通分布计算
-      return this.calculateNormalBinaryOp(leftResult.distribution, rightResult.distribution, operator);
-    } else {
-      // 都是普通数值分布
-      const leftDist = this.extractDistribution(leftResult);
-      const rightDist = this.extractDistribution(rightResult);
-      return this.calculateNormalBinaryOp(leftDist, rightDist, operator);
-    }
+  return binOpNormal(this, left, right, operator);
   }
 
   // 计算概率与数值的运算
   calculateProbabilityOperation(probabilityResult, valueResult, operator, probabilityPosition) {
-    if (operator !== '*') {
-      // 对于非乘法操作，转换为普通分布计算
-      const valueDist = this.extractDistribution(valueResult);
-      return this.calculateNormalBinaryOp(probabilityResult.distribution, valueDist, operator);
-    }
-    
-    // 概率乘法：结果是期望值的分布
-    const valueDist = this.extractDistribution(valueResult);
-    const result = {};
-    
-    // 计算期望值分布
-    for (const [value, count] of Object.entries(valueDist)) {
-      const val = parseInt(value);
-      const expectedValue = val * probabilityResult.successProbability;
-      const scaledCount = count;
-      
-      // 将期望值四舍五入到最近的整数或保留小数
-      const roundedExpectedValue = Math.round(expectedValue * 100) / 100;
-      
-      result[roundedExpectedValue] = (result[roundedExpectedValue] || 0) + scaledCount;
-    }
-    
-    return result;
+  return probOpNormal(this, probabilityResult, valueResult, operator, probabilityPosition);
   }
 
   // 普通的二元运算计算
   calculateNormalBinaryOp(leftResult, rightResult, operator) {
-    const result = {};
-    
-    for (const [leftValue, leftCount] of Object.entries(leftResult)) {
-      for (const [rightValue, rightCount] of Object.entries(rightResult)) {
-        const leftVal = parseFloat(leftValue);
-        const rightVal = parseFloat(rightValue);
-        const combinationCount = leftCount * rightCount;
-        
-        let newValue;
-        switch (operator) {
-          case '+':
-            newValue = leftVal + rightVal;
-            break;
-          case '-':
-            newValue = leftVal - rightVal;
-            break;
-          case '*':
-            newValue = leftVal * rightVal;
-            break;
-          case '/':
-            newValue = rightVal !== 0 ? leftVal / rightVal : 0;
-            break;
-          default:
-            throw new Error(`未知运算符: ${operator}`);
-        }
-        
-        // 四舍五入到合理精度
-        newValue = Math.round(newValue * 100) / 100;
-        result[newValue] = (result[newValue] || 0) + combinationCount;
-      }
-    }
-    
-    return result;
+  return normBinOp(this, leftResult, rightResult, operator);
   }
 
   // 评估AST节点
