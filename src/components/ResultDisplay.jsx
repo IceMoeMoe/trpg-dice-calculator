@@ -509,28 +509,123 @@ const ResultDisplay = ({ result, formula }) => {
                 </tr>
               </thead>
               <tbody>
-                {values.map(value => {
-                  const count = distribution[value];
-                  const probability = (count / totalOutcomes) * 100;
-                  const barWidth = (probability / Math.max(...Object.values(distribution).map(c => (c / totalOutcomes) * 100))) * 100;
-                  const displayValue = value % 1 === 0 ? value.toString() : value.toFixed(2);
-                  
-                  return (
-                    <tr key={value} className="border-b hover:bg-gray-50">
-                      <td className="p-2 font-mono">{displayValue}</td>
-                      <td className="p-2 text-right">{count.toLocaleString()}</td>
-                      <td className="p-2 text-right">{probability.toFixed(10)}%</td>
-                      <td className="p-2">
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div 
-                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                            style={{ width: `${barWidth}%` }}
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {(() => {
+                  // 组装与图表一致的合并概率数据，避免稀有结果被整数缩放丢弃
+                  let rows = [];
+
+                  if (result.isConditionalCritical && result.normalHitValues && result.criticalHitValues && result.probabilities) {
+                    // 按整数桶合并
+                    const mergedNormal = {};
+                    const mergedCritical = {};
+                    const mergedMiss = {};
+
+                    Object.entries(result.normalHitValues || {}).forEach(([v, c]) => {
+                      const k = Math.floor(parseFloat(v));
+                      mergedNormal[k] = (mergedNormal[k] || 0) + c;
+                    });
+                    Object.entries(result.criticalHitValues || {}).forEach(([v, c]) => {
+                      const k = Math.floor(parseFloat(v));
+                      mergedCritical[k] = (mergedCritical[k] || 0) + c;
+                    });
+                    Object.entries(result.missValues || {}).forEach(([v, c]) => {
+                      const k = Math.floor(parseFloat(v));
+                      mergedMiss[k] = (mergedMiss[k] || 0) + c;
+                    });
+
+                    const keys = new Set([
+                      ...Object.keys(mergedNormal).map(k => parseFloat(k)),
+                      ...Object.keys(mergedCritical).map(k => parseFloat(k)),
+                      ...Object.keys(mergedMiss).map(k => parseFloat(k)),
+                    ]);
+
+                    const nTotal = Object.values(mergedNormal).reduce((s, c) => s + c, 0) || 1;
+                    const cTotal = Object.values(mergedCritical).reduce((s, c) => s + c, 0) || 1;
+                    const mTotal = Object.values(mergedMiss).reduce((s, c) => s + c, 0) || 1;
+
+                    const probs = result.probabilities;
+        rows = Array.from(keys)
+                      .sort((a, b) => a - b)
+                      .map(v => {
+                        const nCnt = mergedNormal[v] || 0;
+                        const cCnt = mergedCritical[v] || 0;
+                        const mCnt = mergedMiss[v] || 0;
+                        const nProb = nTotal > 0 ? (nCnt / nTotal) * (probs.normalHit || 0) : 0;
+                        const cProb = cTotal > 0 ? (cCnt / cTotal) * (probs.criticalHit || 0) : 0;
+                        const mProb = mTotal > 0 ? (mCnt / mTotal) * (probs.miss || 0) : 0;
+                        const totalProb = nProb + cProb + mProb; // 概率(0-1)
+                        return {
+                          value: v,
+          count: totalProb > 0 ? Math.max(1, Math.round(totalProb * totalOutcomes)) : 0,
+                          probability: totalProb * 100,
+                        };
+                      });
+                  } else if (result.isCritical && result.normalDistribution && result.criticalDistribution) {
+                    // 暴击：合并普通/暴击的分布（按整数桶）
+                    const mergedNormal = {};
+                    const mergedCritical = {};
+                    Object.entries(result.normalDistribution || {}).forEach(([v, c]) => {
+                      const k = Math.floor(parseFloat(v));
+                      mergedNormal[k] = (mergedNormal[k] || 0) + c;
+                    });
+                    Object.entries(result.criticalDistribution || {}).forEach(([v, c]) => {
+                      const k = Math.floor(parseFloat(v));
+                      mergedCritical[k] = (mergedCritical[k] || 0) + c;
+                    });
+                    const keys = new Set([
+                      ...Object.keys(mergedNormal).map(k => parseFloat(k)),
+                      ...Object.keys(mergedCritical).map(k => parseFloat(k)),
+                    ]);
+                    const nTotal = Object.values(mergedNormal).reduce((s, c) => s + c, 0) || 1;
+                    const cTotal = Object.values(mergedCritical).reduce((s, c) => s + c, 0) || 1;
+                    const nProbW = result.normalProbability || 0;
+                    const cProbW = result.criticalProbability || 0;
+        rows = Array.from(keys)
+                      .sort((a, b) => a - b)
+                      .map(v => {
+                        const nCnt = mergedNormal[v] || 0;
+                        const cCnt = mergedCritical[v] || 0;
+                        const nProb = nTotal > 0 ? (nCnt / nTotal) * nProbW : 0;
+                        const cProb = cTotal > 0 ? (cCnt / cTotal) * cProbW : 0;
+                        const totalProb = nProb + cProb;
+                        return {
+                          value: v,
+          count: totalProb > 0 ? Math.max(1, Math.round(totalProb * totalOutcomes)) : 0,
+                          probability: totalProb * 100,
+                        };
+                      });
+                  } else {
+                    // 普通：直接用分布
+                    rows = Object.entries(distribution)
+                      .map(([v, c]) => ({
+                        value: parseFloat(v),
+                        count: c,
+                        probability: (c / totalOutcomes) * 100,
+                      }))
+                      .sort((a, b) => a.value - b.value);
+                  }
+
+                  const maxProb = rows.length > 0 ? Math.max(...rows.map(r => r.probability)) : 0;
+
+                  return rows.map(({ value, count, probability }) => {
+                    const displayValue = value % 1 === 0 ? value.toString() : value.toFixed(2);
+                    const barWidth = maxProb > 0 ? (probability / maxProb) * 100 : 0;
+                    return (
+                      <tr key={value} className="border-b hover:bg-gray-50">
+                        <td className="p-2 font-mono">{displayValue}</td>
+                        <td className="p-2 text-right">{Math.round(count).toLocaleString()}</td>
+                        <td className="p-2 text-right">{probability.toFixed(10)}%</td>
+                        <td className="p-2">
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div
+                              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${barWidth}%` }}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()}
               </tbody>
             </table>
           </div>
